@@ -3,7 +3,9 @@ torch.autograd.set_detect_anomaly(True)
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-from torchsearchsorted import searchsorted
+# from torchsearchsorted import searchsorted
+# supported in pytorch now: https://github.com/aliutkus/torchsearchsorted/issues/24
+from torch import searchsorted
 
 
 # Misc
