@@ -68,10 +68,27 @@ def pose_spherical(theta, phi, radius):
 
 
 def load_blender_data(basedir, half_res=False, testskip=1):
+    """Loads the synthetic blender dataset.
+
+    Args:
+        basedir (str): path to base directory.
+        half_res (bool, optional): whether to load images at half resolution. Defaults to False.
+        testskip (int, optional): will load 1/N images from test/val sets. Defaults to 1.
+
+    Returns:
+        imgs: list of all images (train+val+test). Single images are RGBA.
+        poses: list of all poses.
+        times: list of all time stamps.
+        render_poses: #TODO
+        render_times: #TODO
+        [H, W, focal]: #TODO
+        i_split: list of lists with indices corresponding to the train, val, test splits.
+    """
     splits = ['train', 'val', 'test']
     metas = {}
     for s in splits:
         with open(os.path.join(basedir, 'transforms_{}.json'.format(s)), 'r') as fp:
+            # load the per-frame file-locations, times and homogeneous transforms
             metas[s] = json.load(fp)
 
     all_imgs = []
@@ -93,9 +110,12 @@ def load_blender_data(basedir, half_res=False, testskip=1):
             fname = os.path.join(basedir, frame['file_path'] + '.png')
             imgs.append(imageio.imread(fname))
             poses.append(np.array(frame['transform_matrix']))
+            # if times are not given, assume frames are distributed uniformly over time
             cur_time = frame['time'] if 'time' in frame else float(t) / (len(meta['frames'][::skip])-1)
             times.append(cur_time)
 
+        # TODO J: Verstehe nicht warum alle time==0, dann gibt es zu time=0 verschiedene Bilder 
+        # -> Nein, nur das erste frame hat time=0 (times ist eine list mit allen frames)
         assert times[0] == 0, "Time must start at 0"
 
         imgs = (np.array(imgs) / 255.).astype(np.float32)  # keep all 4 channels (RGBA)
@@ -106,16 +126,20 @@ def load_blender_data(basedir, half_res=False, testskip=1):
         all_poses.append(poses)
         all_times.append(times)
     
+    # prepare indices of train/val/test splits
     i_split = [np.arange(counts[i], counts[i+1]) for i in range(3)]
     
     imgs = np.concatenate(all_imgs, 0)
     poses = np.concatenate(all_poses, 0)
     times = np.concatenate(all_times, 0)
     
+    # TODO P: Was passiert hier? Im paper kann ich keine Info hierzu finden... was ist focal
     H, W = imgs[0].shape[:2]
     camera_angle_x = float(meta['camera_angle_x'])
     focal = .5 * W / np.tan(.5 * camera_angle_x)
 
+    # TODO P: das hier läuft nur, wenn es ein data/*/transforms_render.json gibt. Das haben wir gar nie... 
+    # ansonsten werden die render_poses berechnet. Was ist der Unterschied zwischen poses und render_poses?
     if os.path.exists(os.path.join(basedir, 'transforms_{}.json'.format('render'))):
         with open(os.path.join(basedir, 'transforms_{}.json'.format('render')), 'r') as fp:
             meta = json.load(fp)

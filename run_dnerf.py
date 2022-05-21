@@ -20,8 +20,7 @@ DEBUG = False
 
 
 def batchify(fn, chunk):
-    """Constructs a version of 'fn' that applies to smaller batches.
-    """
+    """Constructs a version of 'fn' that applies to smaller batches."""
     if chunk is None:
         return fn
     def ret(inputs_pos, inputs_time):
@@ -623,6 +622,7 @@ def train():
         far = 6.
 
         if args.white_bkgd:
+            # multiply RGB channels with the A channel
             images = images[...,:3]*images[...,-1:] + (1.-images[...,-1:])
         else:
             images = images[...,:3]
@@ -735,6 +735,7 @@ def train():
         time0 = time.time()
 
         # Sample random ray batch
+        # TODO Johannes: Schauen ob es Sinn macht batches über mehrer bilder zu machen anstatt nur von einem
         if use_batching:
             raise NotImplementedError("Time not implemented")
 
@@ -762,7 +763,7 @@ def train():
             target = images[img_i]
             pose = poses[img_i, :3, :4]
             frame_time = times[img_i]
-
+             
             if N_rand is not None:
                 rays_o, rays_d = get_rays(H, W, focal, torch.Tensor(pose))  # (H, W, 3), (H, W, 3)
 
