@@ -621,10 +621,13 @@ def train():
         near = 2.
         far = 6.
 
+        # the RGB-to-RGBA conversion depends on the background color (alpha compositioning)
+        # see https://stackoverflow.com/questions/2049230/convert-rgba-color-to-rgb
         if args.white_bkgd:
-            # multiply RGB channels with the A channel
+            # (img_RGB * img_A) + (1 - img_A) * bkgd_RGB 
             images = images[...,:3]*images[...,-1:] + (1.-images[...,-1:])
         else:
+            # approximation as the background RGB values are unknown
             images = images[...,:3]
 
         # images = [rgb2hsv(img) for img in images]
