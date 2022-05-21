@@ -79,9 +79,9 @@ def load_blender_data(basedir, half_res=False, testskip=1):
         imgs: list of all images (train+val+test). Single images are RGBA.
         poses: list of all poses.
         times: list of all time stamps.
-        render_poses: #TODO
-        render_times: #TODO
-        [H, W, focal]: #TODO
+        render_poses: #TODO the poses to render.
+        render_times: #TODO the times to render.
+        [H, W, focal]: #TODO [height, width, ???] of rendered images.
         i_split: list of lists with indices corresponding to the train, val, test splits.
     """
     splits = ['train', 'val', 'test']
@@ -133,13 +133,13 @@ def load_blender_data(basedir, half_res=False, testskip=1):
     poses = np.concatenate(all_poses, 0)
     times = np.concatenate(all_times, 0)
     
-    # TODO P: Was passiert hier? Im paper kann ich keine Info hierzu finden... was ist focal
+    # TODO P: Ist das richtig so???
+    # relationship between the AOV and focal length: https://en.wikipedia.org/wiki/Angle_of_view
     H, W = imgs[0].shape[:2]
-    camera_angle_x = float(meta['camera_angle_x'])
-    focal = .5 * W / np.tan(.5 * camera_angle_x)
+    camera_angle_x = float(meta['camera_angle_x'])      # horizontal AOV
+    focal = .5 * W / np.tan(.5 * camera_angle_x)        # focal length
 
-    # TODO P: das hier läuft nur, wenn es ein data/*/transforms_render.json gibt. Das haben wir gar nie... 
-    # ansonsten werden die render_poses berechnet. Was ist der Unterschied zwischen poses und render_poses?
+    # set the (novel) poses that are used to render novel views. Take them from the file, if given, else compute them from a sphere.
     if os.path.exists(os.path.join(basedir, 'transforms_{}.json'.format('render'))):
         with open(os.path.join(basedir, 'transforms_{}.json'.format('render')), 'r') as fp:
             meta = json.load(fp)
@@ -161,8 +161,8 @@ def load_blender_data(basedir, half_res=False, testskip=1):
             imgs_half_res[i] = cv2.resize(img, (H, W), interpolation=cv2.INTER_AREA)
         imgs = imgs_half_res
         # imgs = tf.image.resize_area(imgs, [400, 400]).numpy()
+    
 
-        
     return imgs, poses, times, render_poses, render_times, [H, W, focal], i_split
 
 
