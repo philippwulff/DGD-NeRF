@@ -21,15 +21,16 @@ class Embedder:
         self.create_embedding_fn()
         
     def create_embedding_fn(self):
+        """Create positional encoder function for each input dimension independently."""
         embed_fns = []
         d = self.kwargs['input_dims']
         out_dim = 0
         if self.kwargs['include_input']:
-            embed_fns.append(lambda x : x)
+            embed_fns.append(lambda x : x)          # encoded vector includes input # TODO P: im paper steht, dass das nicht den input beinhaltet
             out_dim += d
-            
+        
         max_freq = self.kwargs['max_freq_log2']
-        N_freqs = self.kwargs['num_freqs']
+        N_freqs = self.kwargs['num_freqs']          # e.g., when N_freqs=10, then max_freq=9
         
         if self.kwargs['log_sampling']:
             freq_bands = 2.**torch.linspace(0., max_freq, steps=N_freqs)
@@ -38,7 +39,7 @@ class Embedder:
             
         for freq in freq_bands:
             for p_fn in self.kwargs['periodic_fns']:
-                embed_fns.append(lambda x, p_fn=p_fn, freq=freq : p_fn(x * freq))
+                embed_fns.append(lambda x, p_fn=p_fn, freq=freq : p_fn(x * freq))   
                 out_dim += d
                     
         self.embed_fns = embed_fns
@@ -49,6 +50,15 @@ class Embedder:
 
 
 def get_embedder(multires, input_dims, i=0):
+    """Returns function to do positional encoding.
+    Args:
+        multires (int): log2 of the max frequency.
+        input_dims (int): input dimensionality.
+        i (int, optional): set 0 for default positional encoding, -1 for none. Defaults to 0.
+    Returns:
+        embed: func. Function that returns embedding of vector.
+        embedder_obj.out_dim: int. The dimension of the embedding.
+    """
     if i == -1:
         return nn.Identity(), input_dims
     
@@ -62,7 +72,7 @@ def get_embedder(multires, input_dims, i=0):
     }
     
     embedder_obj = Embedder(**embed_kwargs)
-    embed = lambda x, eo=embedder_obj : eo.embed(x)
+    embed = lambda x, eo=embedder_obj : eo.embed(x) 
     return embed, embedder_obj.out_dim
 
 
@@ -142,16 +152,18 @@ class NeRF:
         return model
 
 class NeRFOriginal(nn.Module):
+    """See original paper Fig. 7."""
     def __init__(self, D=8, W=256, input_ch=3, input_ch_views=3, input_ch_time=1, output_ch=4, skips=[4],
                  use_viewdirs=False, memory=[], embed_fn=None, output_color_ch=3, zero_canonical=True):
         super(NeRFOriginal, self).__init__()
-        self.D = D
-        self.W = W
+        self.D = D                              # depth
+        self.W = W                              # width
         self.input_ch = input_ch
         self.input_ch_views = input_ch_views
         self.skips = skips
-        self.use_viewdirs = use_viewdirs
+        self.use_viewdirs = use_viewdirs        # use full 5D input (position + direction). Else, ignore viewing direction (3D input).
 
+        ### First MLP with position input (x,y,z) -> output is latent vector + density
         # self.pts_linears = nn.ModuleList(
         #     [nn.Linear(input_ch, W)] +
         #     [nn.Linear(W, W) if i not in self.skips else nn.Linear(W + input_ch, W) for i in range(D-1)])
@@ -164,37 +176,37 @@ class NeRFOriginal(nn.Module):
                 layer = nn.Linear
 
             in_channels = W
-            if i in self.skips:
-                in_channels += input_ch
+            if i in self.skips:                 
+                in_channels += input_ch     # add skip connection from input to ith layer
 
             layers += [layer(in_channels, W)]
 
         self.pts_linears = nn.ModuleList(layers)
 
         ### Implementation according to the official code release (https://github.com/bmild/nerf/blob/master/run_nerf_helpers.py#L104-L105)
-        self.views_linears = nn.ModuleList([nn.Linear(input_ch_views + W, W//2)])
+        self.views_linears = nn.ModuleList([nn.Linear(input_ch_views + W, W//2)])   # 2nd MLP: viewing dir + feature vector input
 
         ### Implementation according to the paper
         # self.views_linears = nn.ModuleList(
         #     [nn.Linear(input_ch_views + W, W//2)] + [nn.Linear(W//2, W//2) for i in range(D//2)])
 
         if use_viewdirs:
-            self.feature_linear = nn.Linear(W, W)
-            self.alpha_linear = nn.Linear(W, 1)
-            self.rgb_linear = nn.Linear(W//2, output_color_ch)
+            self.feature_linear = nn.Linear(W, W)               # latent vector -> 2nd MLP input
+            self.alpha_linear = nn.Linear(W, 1)                 # latent vector -> density 
+            self.rgb_linear = nn.Linear(W//2, output_color_ch)  # second MLP output -> RGB
         else:
-            self.output_linear = nn.Linear(W, output_ch)
+            self.output_linear = nn.Linear(W, output_ch)        # latent vector -> RGB + density
 
     def forward(self, x, ts):
         input_pts, input_views = torch.split(x, [self.input_ch, self.input_ch_views], dim=-1)
         h = input_pts
-        for i, l in enumerate(self.pts_linears):
+        for i, l in enumerate(self.pts_linears):                # pass position through 1st MLP
             h = self.pts_linears[i](h)
             h = F.relu(h)
             if i in self.skips:
                 h = torch.cat([input_pts, h], -1)
 
-        if self.use_viewdirs:
+        if self.use_viewdirs:                                   # 2nd MLP
             alpha = self.alpha_linear(h)
             feature = self.feature_linear(h)
             h = torch.cat([feature, input_views], -1)
@@ -205,7 +217,7 @@ class NeRFOriginal(nn.Module):
 
             rgb = self.rgb_linear(h)
             outputs = torch.cat([rgb, alpha], -1)
-        else:
+        else:                                                   # 2nd MLP is a single layer
             outputs = self.output_linear(h)
 
         return outputs, torch.zeros_like(input_pts[:, :3])

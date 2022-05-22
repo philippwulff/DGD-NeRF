@@ -202,15 +202,24 @@ def render_path(render_poses, render_times, hwf, chunk, render_kwargs, gt_imgs=N
 
 def create_nerf(args):
     """Instantiate NeRF's MLP model.
+    Returns:
+        render_kwargs_train: dict
+        render_kwargs_test: dict
+        start:
+        grad_vars: 
+        optimizer:
     """
-    embed_fn, input_ch = get_embedder(args.multires, 3, args.i_embed)
+    # Positional encoding
+    embed_fn, input_ch = get_embedder(args.multires, 3, args.i_embed)                       # Encode the 3D position
     embedtime_fn, input_ch_time = get_embedder(args.multires, 1, args.i_embed)
 
     input_ch_views = 0
     embeddirs_fn = None
     if args.use_viewdirs:
-        embeddirs_fn, input_ch_views = get_embedder(args.multires_views, 3, args.i_embed)
+        embeddirs_fn, input_ch_views = get_embedder(args.multires_views, 3, args.i_embed)   # Also encode the 2D direction 
+        # TODO P: Warum 3?
 
+    # TODO P: Wann ist das hier 5??? ich dachte, der ouput ist immer RGB + density
     output_ch = 5 if args.N_importance > 0 else 4
     skips = [4]
     model = NeRF.get_by_name(args.nerf_type, D=args.netdepth, W=args.netwidth,
@@ -621,7 +630,7 @@ def train():
         near = 2.
         far = 6.
 
-        # the RGB-to-RGBA conversion depends on the background color (alpha compositioning)
+        # the RGBA-to-RGB conversion depends on the background color (alpha compositioning)
         # see https://stackoverflow.com/questions/2049230/convert-rgba-color-to-rgb
         if args.white_bkgd:
             # (img_RGB * img_A) + (1 - img_A) * bkgd_RGB 
