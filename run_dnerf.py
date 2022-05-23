@@ -10,7 +10,7 @@ from run_dnerf_helpers import *
 from load_blender import load_blender_data
 
 try:
-    from apex import amp
+    from apex import amp            
 except ImportError:
     pass
 
@@ -20,7 +20,14 @@ DEBUG = False
 
 
 def batchify(fn, chunk):
-    """Constructs a version of 'fn' that applies to smaller batches."""
+    """Constructs a version of 'fn' that applies to smaller batches.
+    
+    Args:
+        fn: network forward method.
+        chunk: number of pts sent through network in parallel.
+    Returns:
+        Function that applies the network 'fn' to chunks of position and time outputs. 
+    """
     if chunk is None:
         return fn
     def ret(inputs_pos, inputs_time):
@@ -29,7 +36,8 @@ def batchify(fn, chunk):
         out_list = []
         dx_list = []
         for i in range(0, num_batches, chunk):
-            out, dx = fn(inputs_pos[i:i+chunk], [inputs_time[0][i:i+chunk], inputs_time[1][i:i+chunk]])
+            # inputs_time[0] and inputs_time[1] are the same
+            out, dx = fn(inputs_pos[i:i+chunk], [inputs_time[0][i:i+chunk], inputs_time[1][i:i+chunk]])     
             out_list += [out]
             dx_list += [dx]
         return torch.cat(out_list, 0), torch.cat(dx_list, 0)
@@ -39,22 +47,23 @@ def batchify(fn, chunk):
 def run_network(inputs, viewdirs, frame_time, fn, embed_fn, embeddirs_fn, embedtime_fn, netchunk=1024*64,
                 embd_time_discr=True):
     """Prepares inputs and applies network 'fn'.
-    inputs: N_rays x N_points_per_ray x 3
-    viewdirs: N_rays x 3
+    inputs: N_rays x N_points_per_ray x 3   
+    viewdirs: N_rays x 3                                # TODO P: why not 2?
     frame_time: N_rays x 1
+    fn: network forward function
     """
     assert len(torch.unique(frame_time)) == 1, "Only accepts all points from same time"
     cur_time = torch.unique(frame_time)[0]
 
     # embed position
-    inputs_flat = torch.reshape(inputs, [-1, inputs.shape[-1]])
+    inputs_flat = torch.reshape(inputs, [-1, inputs.shape[-1]])             # shape: -1, 3
     embedded = embed_fn(inputs_flat)
 
     # embed time
     if embd_time_discr:
-        B, N, _ = inputs.shape
+        B, N, _ = inputs.shape      
         input_frame_time = frame_time[:, None].expand([B, N, 1])
-        input_frame_time_flat = torch.reshape(input_frame_time, [-1, 1])
+        input_frame_time_flat = torch.reshape(input_frame_time, [-1, 1])    # shape: -1, 1
         embedded_time = embedtime_fn(input_frame_time_flat)
         embedded_times = [embedded_time, embedded_time]
 
@@ -64,13 +73,14 @@ def run_network(inputs, viewdirs, frame_time, fn, embed_fn, embeddirs_fn, embedt
     # embed views
     if viewdirs is not None:
         input_dirs = viewdirs[:,None].expand(inputs.shape)
-        input_dirs_flat = torch.reshape(input_dirs, [-1, input_dirs.shape[-1]])
+        input_dirs_flat = torch.reshape(input_dirs, [-1, input_dirs.shape[-1]]) # shape: -1, 3 
         embedded_dirs = embeddirs_fn(input_dirs_flat)
         embedded = torch.cat([embedded, embedded_dirs], -1)
 
     outputs_flat, position_delta_flat = batchify(fn, netchunk)(embedded, embedded_times)
-    outputs = torch.reshape(outputs_flat, list(inputs.shape[:-1]) + [outputs_flat.shape[-1]])
+    outputs = torch.reshape(outputs_flat, list(inputs.shape[:-1]) + [outputs_flat.shape[-1]])   
     position_delta = torch.reshape(position_delta_flat, list(inputs.shape[:-1]) + [position_delta_flat.shape[-1]])
+    # shape: N_rays x N_points_per_ray x net_output_len
     return outputs, position_delta
 
 
@@ -203,11 +213,11 @@ def render_path(render_poses, render_times, hwf, chunk, render_kwargs, gt_imgs=N
 def create_nerf(args):
     """Instantiate NeRF's MLP model.
     Returns:
-        render_kwargs_train: dict
-        render_kwargs_test: dict
-        start:
-        grad_vars: 
-        optimizer:
+        render_kwargs_train: dict for training configuration.
+        render_kwargs_test: dict for test configuration.
+        start (int): training step.
+        grad_vars: learnable parameters.
+        optimizer: Adam optim.
     """
     # Positional encoding
     embed_fn, input_ch = get_embedder(args.multires, 3, args.i_embed)                       # Encode the 3D position
@@ -217,9 +227,9 @@ def create_nerf(args):
     embeddirs_fn = None
     if args.use_viewdirs:
         embeddirs_fn, input_ch_views = get_embedder(args.multires_views, 3, args.i_embed)   # Also encode the 2D direction 
-        # TODO P: Warum 3?
+        # TODO P: Warum 3? sollte das nicht 2 sein?
 
-    # TODO P: Wann ist das hier 5??? ich dachte, der ouput ist immer RGB + density
+    # output_ch only changes the net architecture if use_viewdirs is
     output_ch = 5 if args.N_importance > 0 else 4
     skips = [4]
     model = NeRF.get_by_name(args.nerf_type, D=args.netdepth, W=args.netwidth,
@@ -230,7 +240,7 @@ def create_nerf(args):
     grad_vars = list(model.parameters())
 
     model_fine = None
-    if args.use_two_models_for_fine:
+    if args.use_two_models_for_fine:            # fine network for hierarchical sampling
         model_fine = NeRF.get_by_name(args.nerf_type, D=args.netdepth_fine, W=args.netwidth_fine,
                           input_ch=input_ch, output_ch=output_ch, skips=skips,
                           input_ch_views=input_ch_views, input_ch_time=input_ch_time,
@@ -248,7 +258,7 @@ def create_nerf(args):
     # Create optimizer
     optimizer = torch.optim.Adam(params=grad_vars, lr=args.lrate, betas=(0.9, 0.999))
 
-    if args.do_half_precision:
+    if args.do_half_precision:          # TODO P: amp ist nicht installier, oder? Wird das hier je ausgeführt?
         print("Run model at half precision")
         if model_fine is not None:
             [model, model_fine], optimizers = amp.initialize([model, model_fine], optimizer, opt_level='O1')
@@ -287,10 +297,10 @@ def create_nerf(args):
 
     render_kwargs_train = {
         'network_query_fn' : network_query_fn,
-        'perturb' : args.perturb,
-        'N_importance' : args.N_importance,
+        'perturb' : args.perturb,                           # set to 0. for no jitter, 1. for jitter
+        'N_importance' : args.N_importance,                 # number of additional fine samples per ray
         'network_fine': model_fine,
-        'N_samples' : args.N_samples,
+        'N_samples' : args.N_samples,                       # number of coarse samples per ray
         'network_fn' : model,
         'use_viewdirs' : args.use_viewdirs,
         'white_bkgd' : args.white_bkgd,
@@ -528,8 +538,9 @@ def config_parser():
                         help='only take random rays from 1 image at a time')
     parser.add_argument("--no_reload", action='store_true', 
                         help='do not reload weights from saved ckpt')
-    parser.add_argument("--ft_path", type=str, default=None, 
+    parser.add_argument("--ft_path", type=str, default=None,        
                         help='specific weights npy file to reload for coarse network')
+                        # TODO P: im code wird ft_path benutzt, um alle weights zu initialisiren (nicht nur das coarse net)
 
     # rendering options
     parser.add_argument("--N_samples", type=int, default=64, 

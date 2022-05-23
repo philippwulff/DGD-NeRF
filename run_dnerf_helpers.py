@@ -16,12 +16,13 @@ to8b = lambda x : (255*np.clip(x,0,1)).astype(np.uint8)
 
 # Positional encoding (section 5.1)
 class Embedder:
+    """Positional encoding."""
     def __init__(self, **kwargs):
         self.kwargs = kwargs
         self.create_embedding_fn()
         
     def create_embedding_fn(self):
-        """Create positional encoder function for each input dimension independently."""
+        """Create positional encoding functions."""
         embed_fns = []
         d = self.kwargs['input_dims']
         out_dim = 0
@@ -90,7 +91,7 @@ class DirectTemporalNeRF(nn.Module):
         self.use_viewdirs = use_viewdirs
         self.memory = memory
         self.embed_fn = embed_fn
-        self.zero_canonical = zero_canonical
+        self.zero_canonical = zero_canonical        # if the scene at t=0 is the canonical configuration
 
         self._occ = NeRFOriginal(D=D, W=W, input_ch=input_ch, input_ch_views=input_ch_views,
                                  input_ch_time=input_ch_time, output_ch=output_ch, skips=skips,
@@ -98,7 +99,8 @@ class DirectTemporalNeRF(nn.Module):
         self._time, self._time_out = self.create_time_net()
 
     def create_time_net(self):
-        layers = [nn.Linear(self.input_ch + self.input_ch_time, self.W)]
+        """The deformation network."""
+        layers = [nn.Linear(self.input_ch + self.input_ch_time, self.W)]    # input is encoded position + time
         for i in range(self.D - 1):
             if i in self.memory:
                 raise NotImplementedError
@@ -106,13 +108,14 @@ class DirectTemporalNeRF(nn.Module):
                 layer = nn.Linear
 
             in_channels = self.W
-            if i in self.skips:
+            if i in self.skips:                                 # skip connection from input to ith layer
                 in_channels += self.input_ch
 
-            layers += [layer(in_channels, self.W)]
-        return nn.ModuleList(layers), nn.Linear(self.W, 3)
+            layers += [layer(in_channels, self.W)]              
+        return nn.ModuleList(layers), nn.Linear(self.W, 3)      # final layer outputs (delta x,delta y,delta z)
 
     def query_time(self, new_pts, t, net, net_final):
+        """Predict deformation from given encoded location + time."""
         h = torch.cat([new_pts, t], dim=-1)
         for i, l in enumerate(net):
             h = net[i](h)
@@ -123,18 +126,26 @@ class DirectTemporalNeRF(nn.Module):
         return net_final(h)
 
     def forward(self, x, ts):
+        """Predict canonical sample.
+        Args:
+            x (torch.Tensor): embedded position + viewing direction.
+            ts (torch.Tensor): time stamps of the rays in the batch.
+        Returns:
+            out: RGB and density
+            dx: deformations 
+        """
         input_pts, input_views = torch.split(x, [self.input_ch, self.input_ch_views], dim=-1)
-        t = ts[0]
+        t = ts[0]           
 
         assert len(torch.unique(t[:, :1])) == 1, "Only accepts all points from same time"
         cur_time = t[0, 0]
         if cur_time == 0. and self.zero_canonical:
-            dx = torch.zeros_like(input_pts[:, :3])
+            dx = torch.zeros_like(input_pts[:, :3])                             # no deformation in canonical configuration
         else:
-            dx = self.query_time(input_pts, t, self._time, self._time_out)
+            dx = self.query_time(input_pts, t, self._time, self._time_out)      # deformation of given point at time t
             input_pts_orig = input_pts[:, :3]
             input_pts = self.embed_fn(input_pts_orig + dx)
-        out, _ = self._occ(torch.cat([input_pts, input_views], dim=-1), t)
+        out, _ = self._occ(torch.cat([input_pts, input_views], dim=-1), t)      # predict RGB + density
         return out, dx
 
 
@@ -152,7 +163,7 @@ class NeRF:
         return model
 
 class NeRFOriginal(nn.Module):
-    """See original paper Fig. 7."""
+    """See architecture in the original paper in Fig. 7. This is the canonical network."""
     def __init__(self, D=8, W=256, input_ch=3, input_ch_views=3, input_ch_time=1, output_ch=4, skips=[4],
                  use_viewdirs=False, memory=[], embed_fn=None, output_color_ch=3, zero_canonical=True):
         super(NeRFOriginal, self).__init__()
@@ -163,7 +174,7 @@ class NeRFOriginal(nn.Module):
         self.skips = skips
         self.use_viewdirs = use_viewdirs        # use full 5D input (position + direction). Else, ignore viewing direction (3D input).
 
-        ### First MLP with position input (x,y,z) -> output is latent vector + density
+        ### First MLP with encoded position input (x,y,z) -> output is latent vector + density
         # self.pts_linears = nn.ModuleList(
         #     [nn.Linear(input_ch, W)] +
         #     [nn.Linear(W, W) if i not in self.skips else nn.Linear(W + input_ch, W) for i in range(D-1)])
