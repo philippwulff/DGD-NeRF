@@ -170,6 +170,18 @@ def render(H, W, focal, chunk=1024*32, rays=None, c2w=None, ndc=True,
 
 def render_path(render_poses, render_times, hwf, chunk, render_kwargs, gt_imgs=None, savedir=None,
                 render_factor=0, save_also_gt=False, i_offset=0):
+    """Render images at the given camera poses and times.
+    Args:
+        render_poses: array of poses to be rendered.
+        render_times: array of corresponding times to be rendered.
+        hwf: (height, width, focal length)
+        chunk: Max num of points per batch to avoid memory issues.
+        render_kwargs: dict which contains train/test objects such as the run_network function.
+        gt_imgs: list of ground truth images. Defaults to None.
+        i_offset: int. . Defaults to 0.
+    Returns:
+        _type_: _description_
+    """
 
     H, W, focal = hwf
 
@@ -204,8 +216,8 @@ def render_path(render_poses, render_times, hwf, chunk, render_kwargs, gt_imgs=N
                 filename = os.path.join(save_dir_gt, '{:03d}.png'.format(i+i_offset))
                 imageio.imwrite(filename, rgb8_gt)
 
-    rgbs = np.stack(rgbs, 0)
-    disps = np.stack(disps, 0)
+    rgbs = np.stack(rgbs, 0)        # Predicted RGB values
+    disps = np.stack(disps, 0)      # Disparity map. Inverse of depth.
 
     return rgbs, disps
 
