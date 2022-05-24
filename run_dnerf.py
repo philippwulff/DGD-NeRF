@@ -14,7 +14,7 @@ try:
 except ImportError:
     pass
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")             # We have 3 GPUs
 np.random.seed(0)
 DEBUG = False
 
@@ -86,6 +86,11 @@ def run_network(inputs, viewdirs, frame_time, fn, embed_fn, embeddirs_fn, embedt
 
 def batchify_rays(rays_flat, chunk=1024*32, **kwargs):
     """Render rays in smaller minibatches to avoid OOM.
+    Args:
+        rays_flat: [batch_size, 3]. all ray directions from a camera.
+        chunk: int. The max number of rays to process in parallel. Defaults to 1024*32.
+    Returns:
+        all_ret: dict.  
     """
     all_ret = {}
     for i in range(0, rays_flat.shape[0], chunk):
@@ -132,10 +137,10 @@ def render(H, W, focal, chunk=1024*32, rays=None, c2w=None, ndc=True,
         # use provided ray batch
         rays_o, rays_d = rays
 
-    if use_viewdirs:
+    if use_viewdirs:                            # this is set to True when using full 5D input to the canonical model
         # provide ray directions as input
         viewdirs = rays_d
-        if c2w_staticcam is not None:
+        if c2w_staticcam is not None:           # the code which sets c2w_staticcam to True is commented out in the official code
             # special case to visualize effect of viewdirs
             rays_o, rays_d = get_rays(H, W, focal, c2w_staticcam)
         viewdirs = viewdirs / torch.norm(viewdirs, dim=-1, keepdim=True)
@@ -150,14 +155,14 @@ def render(H, W, focal, chunk=1024*32, rays=None, c2w=None, ndc=True,
     rays_o = torch.reshape(rays_o, [-1,3]).float()
     rays_d = torch.reshape(rays_d, [-1,3]).float()
 
-    near, far = near * torch.ones_like(rays_d[...,:1]), far * torch.ones_like(rays_d[...,:1])
+    near, far = near * torch.ones_like(rays_d[...,:1]), far * torch.ones_like(rays_d[...,:1])   # [batch_size * H * W] # TODO P: richtig?
     frame_time = frame_time * torch.ones_like(rays_d[...,:1])
     rays = torch.cat([rays_o, rays_d, near, far, frame_time], -1)
     if use_viewdirs:
         rays = torch.cat([rays, viewdirs], -1)
 
     # Render and reshape
-    all_ret = batchify_rays(rays, chunk, **kwargs)
+    all_ret = batchify_rays(rays, chunk, **kwargs)          # TODO P: this is calling render() again??? Wie funzt das?
     for k in all_ret:
         k_sh = list(sh[:-1]) + list(all_ret[k].shape[1:])
         all_ret[k] = torch.reshape(all_ret[k], k_sh)

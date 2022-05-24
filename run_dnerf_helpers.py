@@ -285,9 +285,12 @@ def hsv_to_rgb(h, s, v):
 
 # Ray helpers
 def get_rays(H, W, focal, c2w):
+    """Returns ray directions and origins (duplicated) in the world frame."""
     i, j = torch.meshgrid(torch.linspace(0, W-1, W), torch.linspace(0, H-1, H))  # pytorch's meshgrid has indexing='ij'
-    i = i.t()
+    i = i.t()   # transposes 2D tensor
     j = j.t()
+    # The ray directions in the camera coordinate system. 
+    # They reach respective pixel on the image (scaled by 1/focal_length) after travelling 1 unit. # TODO P: Stimmst du zu, Johannes?
     dirs = torch.stack([(i-W*.5)/focal, -(j-H*.5)/focal, -torch.ones_like(i)], -1)
     # Rotate ray directions from camera frame to the world frame
     rays_d = torch.sum(dirs[..., np.newaxis, :] * c2w[:3,:3], -1)  # dot product, equals to: [c2w.dot(dir) for dir in dirs]

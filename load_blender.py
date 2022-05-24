@@ -79,9 +79,10 @@ def load_blender_data(basedir, half_res=False, testskip=1):
         imgs: list of all images (train+val+test). Single images are RGBA.
         poses: list of all poses.
         times: list of all time stamps.
-        render_poses: #TODO the poses to render.
-        render_times: #TODO the times to render.
-        [H, W, focal]: #TODO [height, width, ???] of rendered images.
+        render_poses: the poses to render. The pose is the homogeneous transform for the 
+            camera-to-world-coordinate-system transformation.
+        render_times: the times to render.
+        [H, W, focal]: [height, width, focal length] of rendered images.
         i_split: list of lists with indices corresponding to the train, val, test splits.
     """
     splits = ['train', 'val', 'test']
