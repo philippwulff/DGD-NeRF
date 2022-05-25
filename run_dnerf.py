@@ -14,7 +14,9 @@ try:
 except ImportError:
     pass
 
-device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")             # We have 3 GPUs
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")             # We have 3 GPUs
+cuda_index = torch.cuda.current_device()
+print(f"CUDA version is {torch.version.cuda} and current CUDA device is {torch.cuda.get_device_name(cuda_index)}")
 np.random.seed(0)
 DEBUG = False
 
