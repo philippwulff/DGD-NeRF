@@ -1,4 +1,7 @@
+from genericpath import exists
 import os
+from pathlib import Path
+import shutil
 import torch
 import numpy as np
 import imageio 
@@ -7,6 +10,54 @@ import torch.nn.functional as F
 import cv2
 
 
+def extract_deepdeform_data(datadir, scene_name, start_frame_i=0, end_frame_i=0, step=1, train_p=0.7, val_p=0.15, test_p=0.15):
+    
+    if end_frame_i == 0:
+        end_frame_i = len(rgb_paths) - 1
+
+    rgb_paths = os.listdir(os.path.join(datadir, "color"))[start_frame_i:end_frame_i:step]
+    depth_paths = os.listdir(os.path.join(datadir, "depth"))[start_frame_i:end_frame_i:step]
+    assert len(rgb_paths) == len(depth_paths), "Unequal number of RGB and depth frames."
+
+    get_split = lambda l1, l2, p: (l1[:int(len(l1) * p)], l2[:int(len(l2) * p)])
+    splits = {
+        "train": get_split(rgb_paths, depth_paths, train_p), 
+        "val": get_split(rgb_paths, depth_paths, val_p), 
+        "test": get_split(rgb_paths, depth_paths, test_p),
+    }
+
+    with open(datadir + "/intrinsics.txt", "r") as f:
+        transform_matrix = np.array([line.split(" ") for line in f.read().split("\n")[:-1]])
+        transform_matrix = transform_matrix.astype(np.float32)
+        assert transform_matrix.shape == (4, 4), "Transform shape mismatch."
+        assert transform_matrix[3, :] == [0, 0, 0, 1], "Transform last row mismatch."
+    
+    new_dir = Path(f"./data/{scene_name}/").mkdir(parents=True, exist_ok=True)
+    for split in splits:
+
+        rgb_dir = Path(f"./{new_dir}/{split}/").mkdir(parents=True, exist_ok=True)
+        d_dir = Path(f"./{new_dir}/{split}_depth/").mkdir(exist_ok=True)
+        transforms = {
+            "camera_angle_x": 0,
+            "frames": []
+        }
+        for i, (rgb_p, d_p) in enumerate(zip(splits[split])):
+            # Copy RGB-D files
+            num_str = "".join(["0" for _ in range(0, 3-len(str(i)))]) + str(i)
+            shutil.copyfile(rgb_p, rgb_dir + f"rgb_{num_str}.png")
+            shutil.copyfile(d_p, d_dir + f"d_{num_str}.jpg")
+            # Add transform & time info
+            frame_info = {
+                "file_path": f"./{split}/rgb_{num_str}.png",
+                "depth_file_path": f"./{split}/d_{num_str}.jpg",
+                "rotation": 0,
+                "time": i/int(end_frame_i/step),
+                "transform_matrix": transform_matrix,
+            }
+            transforms["frames"].append(frame_info)
+        
+        with open(os.path.join(new_dir, f"transforms_{split}.json"), "w", encoding='utf-8') as f:
+            json.dump(transforms, f, ensure_ascii=False, indent=4)
 
 
 def load_deepdeform_data(basedir):

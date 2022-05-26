@@ -69,12 +69,10 @@ def pose_spherical(theta, phi, radius):
 
 def load_blender_data(basedir, half_res=False, testskip=1):
     """Loads the synthetic blender dataset.
-
     Args:
         basedir (str): path to base directory.
         half_res (bool, optional): whether to load images at half resolution. Defaults to False.
         testskip (int, optional): will load 1/N images from test/val sets. Defaults to 1.
-
     Returns:
         imgs: list of all images (train+val+test). Single images are RGBA.
         poses: list of all poses.
