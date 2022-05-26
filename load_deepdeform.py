@@ -1,4 +1,3 @@
-from genericpath import exists
 import os
 from pathlib import Path
 import shutil
@@ -10,53 +9,68 @@ import torch.nn.functional as F
 import cv2
 
 
-def extract_deepdeform_data(datadir, scene_name, start_frame_i=0, end_frame_i=0, step=1, train_p=0.7, val_p=0.15, test_p=0.15):
-    
-    if end_frame_i == 0:
+def extract_deepdeform_data(datadir, scene_name, start_frame_i=0, end_frame_i=None, step=1, train_p=0.7, val_p=0.15, test_p=0.15):
+    """Converts a given sequence from the DeepDeform dataset to the required format.
+    Download DeepDeform at: https://github.com/AljazBozic/DeepDeform
+
+    Args:
+        datadir (str): The path leading to the sequence directory, e.g. path/to/deepdeform/seq000/
+        scene_name (str): The name for the created scene folder.
+        start_frame_i (int, optional): Index of the first image for the new scene. Defaults to 0.
+        end_frame_i (int, optional): Index of the last image for the new scene. Defaults to None.
+        step (int, optional): Set to 1 to have the same frame-rate as in DeepDeform and >1 for a slower frame-rate. 
+            Defaults to 1.
+        train_p (float, optional): Training set fraction. Defaults to 0.7.
+        val_p (float, optional): Validation set fraction. Defaults to 0.15.
+        test_p (float, optional): Test set fraction. Defaults to 0.15.
+    """
+
+    rgb_paths = sorted(os.listdir(os.path.join(datadir, "color")))[start_frame_i:end_frame_i:step]
+    depth_paths = sorted(os.listdir(os.path.join(datadir, "depth")))[start_frame_i:end_frame_i:step]
+    if not end_frame_i:
         end_frame_i = len(rgb_paths) - 1
-
-    rgb_paths = os.listdir(os.path.join(datadir, "color"))[start_frame_i:end_frame_i:step]
-    depth_paths = os.listdir(os.path.join(datadir, "depth"))[start_frame_i:end_frame_i:step]
     assert len(rgb_paths) == len(depth_paths), "Unequal number of RGB and depth frames."
-
-    get_split = lambda l1, l2, p: (l1[:int(len(l1) * p)], l2[:int(len(l2) * p)])
+    
+    frames = [{"rgb": os.path.join(datadir, "color", rgb), "d": os.path.join(datadir, "depth", d), "t": t} 
+                    for rgb, d, t in zip(rgb_paths, depth_paths, np.linspace(0, 1, len(rgb_paths)))]
     splits = {
-        "train": get_split(rgb_paths, depth_paths, train_p), 
-        "val": get_split(rgb_paths, depth_paths, val_p), 
-        "test": get_split(rgb_paths, depth_paths, test_p),
+        "train": frames[:int(len(frames)*train_p)], 
+        "val": frames[int(len(frames)*train_p):int(len(frames)*(train_p+val_p))], 
+        "test": frames[int(len(frames)*(train_p+val_p)):],
     }
+    print(f"Created {int(train_p*100)}-{int(val_p*100)}-{int(test_p*100)}-Split with {len(splits['train'])}-{len(splits['val'])}-{len(splits['test'])} images.")
 
     with open(datadir + "/intrinsics.txt", "r") as f:
         transform_matrix = np.array([line.split(" ") for line in f.read().split("\n")[:-1]])
         transform_matrix = transform_matrix.astype(np.float32)
         assert transform_matrix.shape == (4, 4), "Transform shape mismatch."
-        assert transform_matrix[3, :] == [0, 0, 0, 1], "Transform last row mismatch."
+        assert all(transform_matrix[3, :] == [0, 0, 0, 1]), "Transform last row mismatch."
     
-    new_dir = Path(f"./data/{scene_name}/").mkdir(parents=True, exist_ok=True)
     for split in splits:
-
-        rgb_dir = Path(f"./{new_dir}/{split}/").mkdir(parents=True, exist_ok=True)
-        d_dir = Path(f"./{new_dir}/{split}_depth/").mkdir(exist_ok=True)
+        rgb_dir = Path(f"./data/{scene_name}/{split}/")
+        d_dir = Path(f"./data/{scene_name}/{split}_depth/")
+        rgb_dir.mkdir(parents=True, exist_ok=True)
+        d_dir.mkdir(exist_ok=True)
         transforms = {
             "camera_angle_x": 0,
             "frames": []
         }
-        for i, (rgb_p, d_p) in enumerate(zip(splits[split])):
-            # Copy RGB-D files
+        for i, frame in enumerate(splits[split]):
+            # Copy RGB and depth files
             num_str = "".join(["0" for _ in range(0, 3-len(str(i)))]) + str(i)
-            shutil.copyfile(rgb_p, rgb_dir + f"rgb_{num_str}.png")
-            shutil.copyfile(d_p, d_dir + f"d_{num_str}.jpg")
-            # Add transform & time info
+            shutil.copyfile(frame["rgb"],  f"{rgb_dir}/rgb_{num_str}.png")
+            shutil.copyfile(frame["d"], f"{d_dir}/d_{num_str}.jpg")
+            # Add transform and time info
             frame_info = {
-                "file_path": f"./{split}/rgb_{num_str}.png",
-                "depth_file_path": f"./{split}/d_{num_str}.jpg",
+                "file_path": f"./{split}/rgb_{num_str}",        # without .png
+                "depth_file_path": f"./{split}/d_{num_str}",    # without .jpg
                 "rotation": 0,
-                "time": i/int(end_frame_i/step),
-                "transform_matrix": transform_matrix,
+                "time": frame["t"],
+                "transform_matrix": transform_matrix.tolist(),
             }
             transforms["frames"].append(frame_info)
         
-        with open(os.path.join(new_dir, f"transforms_{split}.json"), "w", encoding='utf-8') as f:
+        with open(os.path.join(f"./data/{scene_name}", f"transforms_{split}.json"), "w", encoding='utf-8') as f:
             json.dump(transforms, f, ensure_ascii=False, indent=4)
 
 
@@ -141,3 +155,7 @@ def load_deepdeform_data(basedir):
         # imgs = tf.image.resize_area(imgs, [400, 400]).numpy()
 
     return imgs, poses, times, render_poses, render_times, [H, W, focal], i_split
+
+
+if __name__ == "__main__":
+    extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq120", "desk")
