@@ -8,6 +8,7 @@ from tqdm import tqdm, trange
 from run_dnerf_helpers import *
 
 from load_blender import load_blender_data
+from load_deepdeform import load_deepdeform_data
 
 try:
     from apex import amp            
@@ -671,6 +672,16 @@ def train():
             images = images[...,:3]
 
         # images = [rgb2hsv(img) for img in images]
+
+    elif args.dataset_type == 'deepdeform':
+        images, poses, times, render_poses, render_times, hwf, i_split = load_deepdeform_data(args.datadir, args.half_res, args.testskip)
+        print('Loaded deepdeform', images.shape, render_poses.shape, hwf, args.datadir)
+        i_train, i_val, i_test = i_split
+
+        near = 2.
+        far = 6.
+
+        # No RGB-to-RGBA conversion needed
 
     else:
         print('Unknown dataset type', args.dataset_type, 'exiting')
