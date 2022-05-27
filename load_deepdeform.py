@@ -33,12 +33,15 @@ def extract_deepdeform_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
     
     frames = [{"rgb": os.path.join(datadir, "color", rgb), "d": os.path.join(datadir, "depth", d), "t": t} 
                     for rgb, d, t in zip(rgb_paths, depth_paths, np.linspace(0, 1, len(rgb_paths)))]
+    np.random.shuffle(frames)
+
+    # Create train-val-test splits from shuffled frames and then sort by time
     splits = {
-        "train": frames[:int(len(frames)*train_p)], 
-        "val": frames[int(len(frames)*train_p):int(len(frames)*(train_p+val_p))], 
-        "test": frames[int(len(frames)*(train_p+val_p)):],
+        "train": sorted(frames[:int(len(frames)*train_p)], key=lambda x: x["t"]), 
+        "val": sorted(frames[int(len(frames)*train_p):int(len(frames)*(train_p+val_p))], key=lambda x: x["t"]), 
+        "test": sorted(frames[int(len(frames)*(train_p+val_p)):], key=lambda x: x["t"]),
     }
-    print(f"Created {int(train_p*100)}-{int(val_p*100)}-{int(test_p*100)}-Split with {len(splits['train'])}-{len(splits['val'])}-{len(splits['test'])} images.")
+    print(f"Creating {int(train_p*100)}-{int(val_p*100)}-{int(test_p*100)}-Split with {len(splits['train'])}-{len(splits['val'])}-{len(splits['test'])} images.")
 
     with open(datadir + "/intrinsics.txt", "r") as f:
         transform_matrix = np.array([line.split(" ") for line in f.read().split("\n")[:-1]])
@@ -46,31 +49,31 @@ def extract_deepdeform_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
         assert transform_matrix.shape == (4, 4), "Transform shape mismatch."
         assert all(transform_matrix[3, :] == [0, 0, 0, 1]), "Transform last row mismatch."
     
-    for split in splits:
-        rgb_dir = Path(f"./data/{scene_name}/{split}/")
-        d_dir = Path(f"./data/{scene_name}/{split}_depth/")
+    for s in splits:
+        rgb_dir = Path(f"./data/{scene_name}/{s}/")
+        d_dir = Path(f"./data/{scene_name}/{s}_depth/")
         rgb_dir.mkdir(parents=True, exist_ok=True)
         d_dir.mkdir(exist_ok=True)
         transforms = {
-            "camera_angle_x": 0,
+            "camera_angle_x": 0.6911112070083618,        # The FOV in x dimension
             "frames": []
         }
-        for i, frame in enumerate(splits[split]):
+        for i, frame in enumerate(splits[s]):
             # Copy RGB and depth files
             num_str = "".join(["0" for _ in range(0, 3-len(str(i)))]) + str(i)
             shutil.copyfile(frame["rgb"],  f"{rgb_dir}/rgb_{num_str}.png")
             shutil.copyfile(frame["d"], f"{d_dir}/d_{num_str}.jpg")
             # Add transform and time info
             frame_info = {
-                "file_path": f"./{split}/rgb_{num_str}",        # without .png
-                "depth_file_path": f"./{split}/d_{num_str}",    # without .jpg
+                "file_path": f"./{s}/rgb_{num_str}",        # without .png
+                "depth_file_path": f"./{s}/d_{num_str}",    # without .jpg
                 "rotation": 0,
                 "time": frame["t"],
                 "transform_matrix": transform_matrix.tolist(),
             }
             transforms["frames"].append(frame_info)
         
-        with open(os.path.join(f"./data/{scene_name}", f"transforms_{split}.json"), "w", encoding='utf-8') as f:
+        with open(os.path.join(f"./data/{scene_name}", f"transforms_{s}.json"), "w", encoding='utf-8') as f:
             json.dump(transforms, f, ensure_ascii=False, indent=4)
 
 
@@ -106,9 +109,8 @@ def load_deepdeform_data(basedir):
             cur_time = frame['time'] if 'time' in frame else float(t) / (len(meta['frames'][::skip])-1)
             times.append(cur_time)
 
-        # TODO J: Verstehe nicht warum alle time==0, dann gibt es zu time=0 verschiedene Bilder 
-        # -> Nein, nur das erste frame hat time=0 (times ist eine list mit allen frames)
-        assert times[0] == 0, "Time must start at 0"
+        # DeepDeform does not have multiple views at t=0
+        # assert times[0] == 0, "Time must start at 0"
 
         imgs = (np.array(imgs) / 255.).astype(np.float32)  # keep all 4 channels (RGBA)
         poses = np.array(poses).astype(np.float32)
@@ -158,4 +160,5 @@ def load_deepdeform_data(basedir):
 
 
 if __name__ == "__main__":
-    extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq120", "desk")
+    print("FOR DEBUGGING")
+    extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq120", "office")
