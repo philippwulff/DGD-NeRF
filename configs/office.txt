@@ -1,4 +1,4 @@
-expname = lego
+expname = office
 basedir = ./logs
 datadir = ./data/office
 dataset_type = deepdeform           
