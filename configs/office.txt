@@ -1,7 +1,7 @@
 expname = lego
 basedir = ./logs
 datadir = ./data/office
-dataset_type = llff           
+dataset_type = deepdeform           
 
 nerf_type = direct_temporal
 no_batching = True

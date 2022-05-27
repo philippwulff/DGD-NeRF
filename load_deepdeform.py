@@ -8,6 +8,8 @@ import json
 import torch.nn.functional as F
 import cv2
 
+from load_blender import pose_spherical
+
 
 def extract_deepdeform_data(datadir, scene_name, start_frame_i=0, end_frame_i=None, step=1, train_p=0.7, val_p=0.15, test_p=0.15):
     """Converts a given sequence from the DeepDeform dataset to the required format.
@@ -77,7 +79,7 @@ def extract_deepdeform_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
             json.dump(transforms, f, ensure_ascii=False, indent=4)
 
 
-def load_deepdeform_data(basedir):
+def load_deepdeform_data(basedir, half_res=False, testskip=1):
 
     splits = ['train', 'val', 'test']
     metas = {}
@@ -150,9 +152,9 @@ def load_deepdeform_data(basedir):
         W = W//2
         focal = focal/2.
 
-        imgs_half_res = np.zeros((imgs.shape[0], H, W, 4))
+        imgs_half_res = np.zeros((imgs.shape[0], H, W, 3))
         for i, img in enumerate(imgs):
-            imgs_half_res[i] = cv2.resize(img, (H, W), interpolation=cv2.INTER_AREA)
+            imgs_half_res[i] = cv2.resize(img, (W, H), interpolation=cv2.INTER_AREA)
         imgs = imgs_half_res
         # imgs = tf.image.resize_area(imgs, [400, 400]).numpy()
 
@@ -160,5 +162,10 @@ def load_deepdeform_data(basedir):
 
 
 if __name__ == "__main__":
-    print("FOR DEBUGGING")
-    extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq120", "office")
+    # print("EXTRACTING DATA")
+    # extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq120", "office")
+    # exit(0)
+
+    print("DEBUGGING")
+    images, poses, times, render_poses, render_times, hwf, i_split = load_deepdeform_data("./data/office", True, 1)
+    print('Loaded deepdeform', images.shape, render_poses.shape, hwf)

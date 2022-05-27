@@ -157,7 +157,8 @@ def load_blender_data(basedir, half_res=False, testskip=1):
 
         imgs_half_res = np.zeros((imgs.shape[0], H, W, 4))
         for i, img in enumerate(imgs):
-            imgs_half_res[i] = cv2.resize(img, (H, W), interpolation=cv2.INTER_AREA)
+            imgs_half_res[i] = cv2.resize(img, (H, W), interpolation=cv2.INTER_AREA)    
+            # The new shape should be (W, H) according to the cv2 docs but the blender images are quadratic, so ....
         imgs = imgs_half_res
         # imgs = tf.image.resize_area(imgs, [400, 400]).numpy()
     
@@ -165,3 +166,8 @@ def load_blender_data(basedir, half_res=False, testskip=1):
     return imgs, poses, times, render_poses, render_times, [H, W, focal], i_split
 
 
+if __name__ == "__main__":
+
+    print("DEBUGGING")
+    images, poses, times, render_poses, render_times, hwf, i_split = load_blender_data("./data/lego", True, 1)
+    print('Loaded deepdeform', images.shape, render_poses.shape, hwf)
