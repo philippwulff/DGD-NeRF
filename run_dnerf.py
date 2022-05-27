@@ -688,8 +688,12 @@ def train():
         return
 
     min_time, max_time = times[i_train[0]], times[i_train[-1]]
-    assert min_time == 0., "time must start at 0"
-    assert max_time == 1., "max time must be 1"
+    if args.dataset_type == "blender":
+        assert min_time == 0., "time must start at 0"
+        assert max_time == 1., "max time must be 1"
+    elif args.dataset_type == "deepdeform":
+        assert min_time >= 0., "time must be >= 0"
+        assert max_time <= 1., "max time must be <= 1"
 
     # Cast intrinsics to right types
     H, W, focal = hwf
