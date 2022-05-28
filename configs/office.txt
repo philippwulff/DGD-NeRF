@@ -1,4 +1,4 @@
-expname = office
+expname = office_new_aov
 basedir = ./logs
 datadir = ./data/office
 dataset_type = deepdeform           
