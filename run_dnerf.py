@@ -679,7 +679,7 @@ def train():
         i_train, i_val, i_test = i_split
 
         near = 0.1
-        far = max(depth_maps) + 0.1
+        far = np.max(depth_maps) + 0.1
 
         # No RGB-to-RGBA conversion needed
 

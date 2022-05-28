@@ -135,7 +135,7 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1):
     i_split = [np.arange(counts[i], counts[i+1]) for i in range(3)]
     
     imgs = np.concatenate(all_imgs, 0)
-    depth_maps = np.concatenate(all_depth_maps, 0)
+    depth_maps = np.concatenate(all_depth_maps, 0).reshape(-1, *depth_maps.shape[1:], 1)
     poses = np.concatenate(all_poses, 0)
     times = np.concatenate(all_times, 0)
     
@@ -163,9 +163,9 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1):
 
         imgs_half_res = np.zeros((imgs.shape[0], H, W, 3))
         depth_maps_half_res = np.zeros((depth_maps.shape[0], H, W, 1))
-        for i, img, depth_map in enumerate(zip(imgs, depth_maps)):
+        for i, (img, depth_map) in enumerate(zip(imgs, depth_maps)):
             imgs_half_res[i] = cv2.resize(img, (W, H), interpolation=cv2.INTER_AREA)
-            depth_maps_half_res[i] = cv2.resize(depth_map, (W, H), interpolation=cv2.INTER_AREA)
+            depth_maps_half_res[i] = cv2.resize(depth_map, (W, H), interpolation=cv2.INTER_AREA).reshape(H, W, 1)
         imgs = imgs_half_res
         depth_maps = depth_maps_half_res
         # imgs = tf.image.resize_area(imgs, [400, 400]).numpy()
@@ -174,12 +174,11 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1):
 
 
 if __name__ == "__main__":
-    print("EXTRACTING DATA")
-    extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq120", "office")
+    # print("EXTRACTING DATA")
+    # extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq120", "office")
     # extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq150", "bag")
+    # exit(0)
 
-    exit(0)
-
-    #print("DEBUGGING")
-    #images, poses, times, render_poses, render_times, hwf, i_split = load_deepdeform_data("./data/office", True, 1)
-    #print('Loaded deepdeform', images.shape, render_poses.shape, hwf)
+    print("DEBUGGING")
+    images, depth_maps, poses, times, render_poses, render_times, hwf, i_split = load_deepdeform_data("./data/office", True, 1)
+    print('Loaded deepdeform', images.shape, render_poses.shape, hwf)
