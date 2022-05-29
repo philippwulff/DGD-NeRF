@@ -9,7 +9,7 @@ import torch.nn.functional as F
 import cv2
 import math
 
-from load_blender import pose_spherical
+from load_blender import pose_spherical, pose_spherical2
 
 
 def extract_deepdeform_data(datadir, scene_name, start_frame_i=0, end_frame_i=None, step=1, train_p=0.7, val_p=0.15, test_p=0.15):
@@ -53,6 +53,9 @@ def extract_deepdeform_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
         assert all(intrinsics_matrix[3, :] == [0, 0, 0, 1]), "Intrinsics last row mismatch."
         f_x = intrinsics_matrix[0, 0]
         f_y = intrinsics_matrix[1, 1]
+
+    transform_matrix = np.identity(4)
+    transform_matrix[2, 3] = 6.
     
     for s in splits:
         rgb_dir = Path(f"./data/{scene_name}/{s}/")
@@ -75,7 +78,7 @@ def extract_deepdeform_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
                 "depth_file_path": f"./{s}_depth/d_{num_str}",      # without .png
                 "rotation": 0,
                 "time": frame["t"],
-                "transform_matrix": np.identity(4).tolist(),        # Use the indentity for now
+                "transform_matrix": transform_matrix.tolist(),        # Use the indentity for now
             }
             transforms["frames"].append(frame_info)
         
@@ -153,7 +156,7 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1):
             render_poses.append(np.array(frame['transform_matrix']))
         render_poses = np.array(render_poses).astype(np.float32)
     else:
-        render_poses = torch.stack([pose_spherical(angle, -30.0, 4.0) for angle in np.linspace(-45,45,10+1)[:-1]], 0)       # changed from (-180,180,40+1)
+        render_poses = torch.stack([pose_spherical2(angle, 0, 6.0) for angle in np.linspace(-20,20,8+1)[:-1]], 0)       # changed from (-180,180,40+1)
     render_times = torch.linspace(0., 1., render_poses.shape[0])
     
     if half_res:
@@ -174,11 +177,11 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1):
 
 
 if __name__ == "__main__":
-    # print("EXTRACTING DATA")
-    # extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq120", "office")
-    # extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq150", "bag")
-    # exit(0)
+    print("EXTRACTING DATA")
+    extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq120", "office")
+    #extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq150", "bag")
+    exit(0)
 
-    print("DEBUGGING")
-    images, depth_maps, poses, times, render_poses, render_times, hwf, i_split = load_deepdeform_data("./data/office", True, 1)
-    print('Loaded deepdeform', images.shape, render_poses.shape, hwf)
+    # print("DEBUGGING")
+    # images, depth_maps, poses, times, render_poses, render_times, hwf, i_split = load_deepdeform_data("./data/office", True, 1)
+    # print('Loaded deepdeform', images.shape, render_poses.shape, hwf)
