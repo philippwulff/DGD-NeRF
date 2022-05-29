@@ -85,4 +85,6 @@ If you use this code or ideas from the paper for your research, please cite our 
 - RGB-D SLAM Dataset: https://vision.in.tum.de/data/datasets/rgbd-dataset
   - Category: Dynamic Objects
   - Sitting scene may be good
+- LARR RGB-D Dataset for Dynamic Environments: https://haram-kim.github.io/LARR-RGB-D-datasets/
+  - seems less good
   

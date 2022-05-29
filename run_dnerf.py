@@ -15,9 +15,9 @@ try:
 except ImportError:
     pass
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")             
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")           
 if device.type == "cuda":
-    print(f"Using CUDA version {torch.version.cuda} on {torch.cuda.get_device_name(device.index)} \
+    print(f"[Info] Using CUDA version {torch.version.cuda} on {torch.cuda.get_device_name(device.index)} \
             with global GPU index {os.environ['CUDA_VISIBLE_DEVICES']}")
 np.random.seed(0)
 DEBUG = False
@@ -121,8 +121,9 @@ def render(H, W, focal, chunk=1024*32, rays=None, c2w=None, ndc=True,
         control maximum memory usage. Does not affect final results.
       rays: array of shape [2, batch_size, 3]. Ray origin and direction for
         each example in batch.
-      c2w: array of shape [3, 4]. Camera-to-world transformation matrix.
-      ndc: bool. If True, represent ray origin, direction in NDC coordinates.
+      c2w: array of shape [3, 4]. Camera-to-world transformation matrix. 
+        Horizontal stack of the rotation matrix an the translation vector.
+      ndc: bool. If True, represent ray origin, direction in normalized device coordinates (NDC).
       near: float or array of shape [batch_size]. Nearest distance for a ray.
       far: float or array of shape [batch_size]. Farthest distance for a ray.
       use_viewdirs: bool. If True, use viewing direction of a point in space in model.
@@ -144,7 +145,7 @@ def render(H, W, focal, chunk=1024*32, rays=None, c2w=None, ndc=True,
     if use_viewdirs:                            # this is set to True when using full 5D input to the canonical model
         # provide ray directions as input
         viewdirs = rays_d
-        if c2w_staticcam is not None:           # the code which sets c2w_staticcam to True is commented out in the official code
+        if c2w_staticcam is not None:           # the code which sets c2w_staticcam to True is commented out in the official D-NeRF code
             # special case to visualize effect of viewdirs
             rays_o, rays_d = get_rays(H, W, focal, c2w_staticcam)
         viewdirs = viewdirs / torch.norm(viewdirs, dim=-1, keepdim=True)
@@ -302,7 +303,7 @@ def create_nerf(args):
     if len(ckpts) > 0 and not args.no_reload:
         ckpt_path = ckpts[-1]
         print('Reloading from', ckpt_path)
-        ckpt = torch.load(ckpt_path)
+        ckpt = torch.load(ckpt_path, map_location=device)       # will map storages to the given device
 
         start = ckpt['global_step']
         optimizer.load_state_dict(ckpt['optimizer_state_dict'])
@@ -680,6 +681,7 @@ def train():
 
         near = 0.1
         far = np.max(depth_maps) + 0.1
+        print(f"[Info] Setting near plane at distance {near} and far plane at distance {far}.")
 
         # No RGB-to-RGBA conversion needed
 
@@ -691,7 +693,7 @@ def train():
     if args.dataset_type == "blender":
         assert min_time == 0., "time must start at 0"
         assert max_time == 1., "max time must be 1"
-    elif args.dataset_type == "deepdeform":
+    elif args.dataset_type == "deepdeform":             # Because DeepDeform is real data, there cannot be a t=0 img in every split
         assert min_time >= 0., "time must be >= 0"
         assert max_time <= 1., "max time must be <= 1"
 

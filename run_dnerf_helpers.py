@@ -285,7 +285,18 @@ def hsv_to_rgb(h, s, v):
 
 # Ray helpers
 def get_rays(H, W, focal, c2w):
-    """Returns ray directions and origins (duplicated) in the world frame."""
+    """Returns ray directions and origins (per ray) in the world frame.
+
+    Args:
+        H (int): Image height in pixels.
+        W (int): Image width in pixels.
+        focal (float): Focal length of the virtual camera.
+        c2w (torch.Tensor): 3x4 Tensor. Horizontal stack of the camera-to-world rotation matrix and translation vector.
+
+    Returns:
+        rays_o: Tensor
+        rays_d: Tensor
+    """
     i, j = torch.meshgrid(torch.linspace(0, W-1, W), torch.linspace(0, H-1, H))  # pytorch's meshgrid has indexing='ij'
     i = i.t()   # transposes 2D tensor
     j = j.t()
