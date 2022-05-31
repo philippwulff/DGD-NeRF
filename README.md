@@ -66,6 +66,24 @@ python run_dnerf.py --config configs/mutant.txt
 
 ## Citation
 If you use this code or ideas from the paper for your research, please cite our paper:
+
+
+
+## Datasets
+
+- DeepDeform: https://github.com/AljazBozic/DeepDeform
+  - Scene 120
+- Bonn RGB-D Dynamic Dataset https://www.ipb.uni-bonn.de/data/rgbd-dynamic-dataset/
+  - the balloon scenes may be the best
+- RGB-D SLAM Dataset: https://vision.in.tum.de/data/datasets/rgbd-dataset
+  - Category: Dynamic Objects
+  - Sitting scene may be good
+- LARR RGB-D Dataset for Dynamic Environments: https://haram-kim.github.io/LARR-RGB-D-datasets/
+  - seems less good
+
+
+## References
+  
 ```
 @article{pumarola2020d,
   title={D-NeRF: Neural Radiance Fields for Dynamic Scenes},

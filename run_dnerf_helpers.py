@@ -284,14 +284,26 @@ def hsv_to_rgb(h, s, v):
 
 
 # Ray helpers
-def get_rays(H, W, focal, c2w):
-    """Returns ray directions and origins (duplicated) in the world frame."""
+def get_rays(H, W, focal_x, focal_y, c2w):
+    """Returns ray directions and origins (per ray) in the world frame.
+
+    Args:
+        H (int): Image height in pixels.
+        W (int): Image width in pixels.
+        focal_x (float): Focal length of the virtual camera.
+        focal_y (float): Focal length of the virtual camera.
+        c2w (torch.Tensor): 3x4 Tensor. Horizontal stack of the camera-to-world rotation matrix and translation vector.
+
+    Returns:
+        rays_o: Tensor
+        rays_d: Tensor
+    """
     i, j = torch.meshgrid(torch.linspace(0, W-1, W), torch.linspace(0, H-1, H))  # pytorch's meshgrid has indexing='ij'
     i = i.t()   # transposes 2D tensor
     j = j.t()
     # The ray directions in the camera coordinate system. 
     # They reach respective pixel on the image (scaled by 1/focal_length) after travelling 1 unit. # TODO P: Stimmst du zu, Johannes?
-    dirs = torch.stack([(i-W*.5)/focal, -(j-H*.5)/focal, -torch.ones_like(i)], -1)
+    dirs = torch.stack([(i-W*.5)/focal_x, -(j-H*.5)/focal_y, -torch.ones_like(i)], -1)
     # Rotate ray directions from camera frame to the world frame
     rays_d = torch.sum(dirs[..., np.newaxis, :] * c2w[:3,:3], -1)  # dot product, equals to: [c2w.dot(dir) for dir in dirs]
     # Translate camera frame's origin to the world frame. It is the origin of all rays.
@@ -299,9 +311,9 @@ def get_rays(H, W, focal, c2w):
     return rays_o, rays_d
 
 
-def get_rays_np(H, W, focal, c2w):
+def get_rays_np(H, W, focal_x, focal_y, c2w):
     i, j = np.meshgrid(np.arange(W, dtype=np.float32), np.arange(H, dtype=np.float32), indexing='xy')
-    dirs = np.stack([(i-W*.5)/focal, -(j-H*.5)/focal, -np.ones_like(i)], -1)
+    dirs = np.stack([(i-W*.5)/focal_x, -(j-H*.5)/focal_y, -np.ones_like(i)], -1)
     # Rotate ray directions from camera frame to the world frame
     rays_d = np.sum(dirs[..., np.newaxis, :] * c2w[:3,:3], -1)  # dot product, equals to: [c2w.dot(dir) for dir in dirs]
     # Translate camera frame's origin to the world frame. It is the origin of all rays.
@@ -310,6 +322,7 @@ def get_rays_np(H, W, focal, c2w):
 
 
 def ndc_rays(H, W, focal, near, rays_o, rays_d):
+
     # Shift ray origins to near plane
     t = -(near + rays_o[...,2]) / rays_d[...,2]
     rays_o = rays_o + t[...,None] * rays_d

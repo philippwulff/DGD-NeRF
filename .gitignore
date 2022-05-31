@@ -8,3 +8,6 @@
 *.zip
 data/*
 logs/*
+
+*.vscode
+*.idea
