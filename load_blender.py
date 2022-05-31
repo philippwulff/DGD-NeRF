@@ -60,6 +60,16 @@ def rodrigues_rot_to_mat(r):
 
 
 def pose_spherical(theta, phi, radius):
+    """Computes rotation matrix from spherical coordinates.
+
+    Args:
+        theta (float): Rotation about the Y-axis in the negative direction.
+        phi (float): Rotation about the X-axis.
+        radius (float): Translation in the radial direction.
+
+    Returns:
+        c2w: 4x4 Tensor. The camera-to-world homogeneous transformation matrix.
+    """
     c2w = trans_t(radius)
     c2w = rot_phi(phi/180.*np.pi) @ c2w
     c2w = rot_theta(theta/180.*np.pi) @ c2w
@@ -67,14 +77,29 @@ def pose_spherical(theta, phi, radius):
     return c2w
 
 
+def pose_spherical2(theta, phi, radius):
+    """Computes rotation matrix from spherical coordinates.
+
+    Args:
+        theta (float): Rotation about the Y-axis in the negative direction.
+        phi (float): Rotation about the X-axis.
+        radius (float): Translation in the radial direction.
+
+    Returns:
+        c2w: 4x4 Tensor. The camera-to-world homogeneous transformation matrix.
+    """
+    c2w = trans_t(radius)
+    c2w = rot_phi(phi/180.*np.pi) @ c2w
+    c2w = rot_theta(theta/180.*np.pi) @ c2w
+    return c2w
+
+
 def load_blender_data(basedir, half_res=False, testskip=1):
     """Loads the synthetic blender dataset.
-
     Args:
         basedir (str): path to base directory.
         half_res (bool, optional): whether to load images at half resolution. Defaults to False.
         testskip (int, optional): will load 1/N images from test/val sets. Defaults to 1.
-
     Returns:
         imgs: list of all images (train+val+test). Single images are RGBA.
         poses: list of all poses.
@@ -159,7 +184,8 @@ def load_blender_data(basedir, half_res=False, testskip=1):
 
         imgs_half_res = np.zeros((imgs.shape[0], H, W, 4))
         for i, img in enumerate(imgs):
-            imgs_half_res[i] = cv2.resize(img, (H, W), interpolation=cv2.INTER_AREA)
+            imgs_half_res[i] = cv2.resize(img, (H, W), interpolation=cv2.INTER_AREA)    
+            # The new shape should be (W, H) according to the cv2 docs but the blender images are quadratic, so ....
         imgs = imgs_half_res
         # imgs = tf.image.resize_area(imgs, [400, 400]).numpy()
     
@@ -167,3 +193,8 @@ def load_blender_data(basedir, half_res=False, testskip=1):
     return imgs, poses, times, render_poses, render_times, [H, W, focal], i_split
 
 
+if __name__ == "__main__":
+
+    print("DEBUGGING")
+    images, poses, times, render_poses, render_times, hwf, i_split = load_blender_data("./data/lego", True, 1)
+    print('Loaded deepdeform', images.shape, render_poses.shape, hwf)

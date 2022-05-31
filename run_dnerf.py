@@ -8,15 +8,17 @@ from tqdm import tqdm, trange
 from run_dnerf_helpers import *
 
 from load_blender import load_blender_data
+from load_deepdeform import load_deepdeform_data
 
 try:
     from apex import amp            
 except ImportError:
     pass
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")             
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")           
 if device.type == "cuda":
-    print(f"Using CUDA version {torch.version.cuda} on {torch.cuda.get_device_name(device.index)} with global GPU index {os.environ['CUDA_VISIBLE_DEVICES']}")
+    print(f"[Info] Using CUDA version {torch.version.cuda} on {torch.cuda.get_device_name(device.index)} \
+            with global GPU index {os.environ['CUDA_VISIBLE_DEVICES']}")
 np.random.seed(0)
 DEBUG = False
 
@@ -106,7 +108,7 @@ def batchify_rays(rays_flat, chunk=1024*32, **kwargs):
     return all_ret
 
 
-def render(H, W, focal, chunk=1024*32, rays=None, c2w=None, ndc=True,
+def render(H, W, focal_x, focal_y, chunk=1024*32, rays=None, c2w=None, ndc=True,
                   near=0., far=1., frame_time=None,
                   use_viewdirs=False, c2w_staticcam=None,
                   **kwargs):
@@ -114,13 +116,15 @@ def render(H, W, focal, chunk=1024*32, rays=None, c2w=None, ndc=True,
     Args:
       H: int. Height of image in pixels.
       W: int. Width of image in pixels.
-      focal: float. Focal length of pinhole camera.
+      focal_x: float. Focal length of pinhole camera.
+      focal_y: float. Focal length of pinhole camera.
       chunk: int. Maximum number of rays to process simultaneously. Used to
         control maximum memory usage. Does not affect final results.
       rays: array of shape [2, batch_size, 3]. Ray origin and direction for
         each example in batch.
-      c2w: array of shape [3, 4]. Camera-to-world transformation matrix.
-      ndc: bool. If True, represent ray origin, direction in NDC coordinates.
+      c2w: array of shape [3, 4]. Camera-to-world transformation matrix. 
+        Horizontal stack of the rotation matrix an the translation vector.
+      ndc: bool. If True, represent ray origin, direction in normalized device coordinates (NDC).
       near: float or array of shape [batch_size]. Nearest distance for a ray.
       far: float or array of shape [batch_size]. Farthest distance for a ray.
       use_viewdirs: bool. If True, use viewing direction of a point in space in model.
@@ -134,7 +138,7 @@ def render(H, W, focal, chunk=1024*32, rays=None, c2w=None, ndc=True,
     """
     if c2w is not None:
         # special case to render full image
-        rays_o, rays_d = get_rays(H, W, focal, c2w)
+        rays_o, rays_d = get_rays(H, W, focal_x, focal_y, c2w)
     else:
         # use provided ray batch
         rays_o, rays_d = rays
@@ -142,16 +146,16 @@ def render(H, W, focal, chunk=1024*32, rays=None, c2w=None, ndc=True,
     if use_viewdirs:                            # this is set to True when using full 5D input to the canonical model
         # provide ray directions as input
         viewdirs = rays_d
-        if c2w_staticcam is not None:           # the code which sets c2w_staticcam to True is commented out in the official code
+        if c2w_staticcam is not None:           # the code which sets c2w_staticcam to True is commented out in the official D-NeRF code
             # special case to visualize effect of viewdirs
-            rays_o, rays_d = get_rays(H, W, focal, c2w_staticcam)
+            rays_o, rays_d = get_rays(H, W, focal_x, focal_y, c2w_staticcam)
         viewdirs = viewdirs / torch.norm(viewdirs, dim=-1, keepdim=True)
         viewdirs = torch.reshape(viewdirs, [-1,3]).float()
 
     sh = rays_d.shape # [..., 3]
     if ndc:
         # for forward facing scenes
-        rays_o, rays_d = ndc_rays(H, W, focal, 1., rays_o, rays_d)
+        rays_o, rays_d = ndc_rays(H, W, focal_x, 1., rays_o, rays_d)        # UNEDITED!
 
     # Create ray batch
     rays_o = torch.reshape(rays_o, [-1,3]).float()
@@ -175,13 +179,13 @@ def render(H, W, focal, chunk=1024*32, rays=None, c2w=None, ndc=True,
     return ret_list + [ret_dict]
 
 
-def render_path(render_poses, render_times, hwf, chunk, render_kwargs, gt_imgs=None, savedir=None,
+def render_path(render_poses, render_times, hwff, chunk, render_kwargs, gt_imgs=None, savedir=None,
                 render_factor=0, save_also_gt=False, i_offset=0):
     """Render images at the given camera poses and times.
     Args:
         render_poses: array of poses to be rendered.
         render_times: array of corresponding times to be rendered.
-        hwf: (height, width, focal length)
+        hwff: (height, width, focal length in x, focal length in y)
         chunk: Max num of points per batch to avoid memory issues.
         render_kwargs: dict which contains train/test objects such as the run_network function.
         gt_imgs: list of ground truth images. Defaults to None.
@@ -190,13 +194,14 @@ def render_path(render_poses, render_times, hwf, chunk, render_kwargs, gt_imgs=N
         _type_: _description_
     """
 
-    H, W, focal = hwf
+    H, W, focal_x, focal_y = hwff
 
     if render_factor!=0:
         # Render downsampled for speed
         H = H//render_factor
         W = W//render_factor
-        focal = focal/render_factor
+        focal_x = focal_x/render_factor
+        focal_y = focal_y/render_factor
 
     if savedir is not None:
         save_dir_estim = os.path.join(savedir, "estim")
@@ -210,7 +215,7 @@ def render_path(render_poses, render_times, hwf, chunk, render_kwargs, gt_imgs=N
     disps = []
 
     for i, (c2w, frame_time) in enumerate(zip(tqdm(render_poses), render_times)):
-        rgb, disp, acc, _ = render(H, W, focal, chunk=chunk, c2w=c2w[:3,:4], frame_time=frame_time, **render_kwargs)
+        rgb, disp, acc, _ = render(H, W, focal_x, focal_y, chunk=chunk, c2w=c2w[:3,:4], frame_time=frame_time, **render_kwargs)
         rgbs.append(rgb.cpu().numpy())
         disps.append(disp.cpu().numpy())
 
@@ -300,7 +305,7 @@ def create_nerf(args):
     if len(ckpts) > 0 and not args.no_reload:
         ckpt_path = ckpts[-1]
         print('Reloading from', ckpt_path)
-        ckpt = torch.load(ckpt_path)
+        ckpt = torch.load(ckpt_path, map_location=device)       # will map storages to the given device
 
         start = ckpt['global_step']
         optimizer.load_state_dict(ckpt['optimizer_state_dict'])
@@ -430,6 +435,10 @@ def render_rays(ray_batch,
       acc0: See acc_map. Output for coarse model.
       z_std: [num_rays]. Standard deviation of distances along ray for each
         sample.
+      J: Also returns:
+      z_vals:
+      position_delta:
+
     """
 
     N_rays = ray_batch.shape[0]
@@ -657,32 +666,46 @@ def train():
         print('Loaded blender', images.shape, render_poses.shape, hwf, args.datadir)
         i_train, i_val, i_test = i_split
 
+        hwff = hwf + [hwf[2]]       # focal_x = focal_y
         near = 2.
         far = 6.
 
         # the RGBA-to-RGB conversion depends on the background color (alpha compositioning)
         # see https://stackoverflow.com/questions/2049230/convert-rgba-color-to-rgb
         if args.white_bkgd:
-            # (img_RGB * img_A) + (1 - img_A) * bkgd_RGB 
-            images = images[...,:3]*images[...,-1:] + (1.-images[...,-1:])
+            images = images[...,:3]*images[...,-1:] + (1.-images[...,-1:])  # (img_RGB * img_A) + (1 - img_A) * bkgd_RGB
         else:
-            # approximation as the background RGB values are unknown
-            images = images[...,:3]
+            images = images[...,:3]     # approximation as the background RGB values are unknown
 
         # images = [rgb2hsv(img) for img in images]
+
+    elif args.dataset_type == 'deepdeform':
+        images, depth_maps, poses, times, render_poses, render_times, hwff, i_split = load_deepdeform_data(args.datadir, args.half_res, args.testskip)
+        print('Loaded deepdeform', images.shape, render_poses.shape, hwff, args.datadir)
+        i_train, i_val, i_test = i_split
+
+        near = 0.1
+        far = np.max(depth_maps) + 0.1
+        print(f"[Info] Setting near plane at distance {near} and far plane at distance {far}.")
+
+        # No RGB-to-RGBA conversion needed
 
     else:
         print('Unknown dataset type', args.dataset_type, 'exiting')
         return
 
     min_time, max_time = times[i_train[0]], times[i_train[-1]]
-    assert min_time == 0., "time must start at 0"
-    assert max_time == 1., "max time must be 1"
+    if args.dataset_type == "blender":
+        assert min_time == 0., "time must start at 0"
+        assert max_time == 1., "max time must be 1"
+    elif args.dataset_type == "deepdeform":             # Because DeepDeform is real data, there cannot be a t=0 img in every split
+        assert min_time >= 0., "time must be >= 0"
+        assert max_time <= 1., "max time must be <= 1"
 
     # Cast intrinsics to right types
-    H, W, focal = hwf
+    H, W, focal_x, focal_y = hwff
     H, W = int(H), int(W)
-    hwf = [H, W, focal]
+    hwff = [H, W, focal_x, focal_y]
 
     if args.render_test:
         render_poses = np.array(poses[i_test])
@@ -732,7 +755,7 @@ def train():
             os.makedirs(testsavedir, exist_ok=True)
             print('test poses shape', render_poses.shape)
 
-            rgbs, _ = render_path(render_poses, render_times, hwf, args.chunk, render_kwargs_test, gt_imgs=images,
+            rgbs, _ = render_path(render_poses, render_times, hwff, args.chunk, render_kwargs_test, gt_imgs=images,
                                   savedir=testsavedir, render_factor=args.render_factor, save_also_gt=True)
             print('Done rendering', testsavedir)
             imageio.mimwrite(os.path.join(testsavedir, 'video.mp4'), to8b(rgbs), fps=30, quality=8)
@@ -745,7 +768,7 @@ def train():
     if use_batching:
         # For random ray batching
         print('get rays')
-        rays = np.stack([get_rays_np(H, W, focal, p) for p in poses[:,:3,:4]], 0) # [N, ro+rd, H, W, 3]
+        rays = np.stack([get_rays_np(H, W, focal_x, focal_y, p) for p in poses[:,:3,:4]], 0) # [N, ro+rd, H, W, 3]
         print('done, concats')
         rays_rgb = np.concatenate([rays, images[:,None]], 1) # [N, ro+rd+rgb, H, W, 3]
         rays_rgb = np.transpose(rays_rgb, [0,2,3,1,4]) # [N, H, W, ro+rd+rgb, 3]
@@ -807,7 +830,7 @@ def train():
             frame_time = times[img_i]
              
             if N_rand is not None:
-                rays_o, rays_d = get_rays(H, W, focal, torch.Tensor(pose))  # (H, W, 3), (H, W, 3)
+                rays_o, rays_d = get_rays(H, W, focal_x, focal_y, torch.Tensor(pose))  # (H, W, 3), (H, W, 3)
 
                 if i < args.precrop_iters:
                     dH = int(H//2 * args.precrop_frac)
@@ -831,7 +854,7 @@ def train():
                 target_s = target[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
 
         #####  Core optimization loop  #####
-        rgb, disp, acc, extras = render(H, W, focal, chunk=args.chunk, rays=batch_rays, frame_time=frame_time,
+        rgb, disp, acc, extras = render(H, W, focal_x, focal_y, chunk=args.chunk, rays=batch_rays, frame_time=frame_time,
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
 
@@ -847,13 +870,13 @@ def train():
 
             if frame_time_prev is not None:
                 rand_time_prev = frame_time_prev + (frame_time - frame_time_prev) * torch.rand(1)[0]
-                _, _, _, extras_prev = render(H, W, focal, chunk=args.chunk, rays=batch_rays, frame_time=rand_time_prev,
+                _, _, _, extras_prev = render(H, W, focal_x, focal_y, chunk=args.chunk, rays=batch_rays, frame_time=rand_time_prev,
                                                 verbose=i < 10, retraw=True, z_vals=extras['z_vals'].detach(),
                                                 **render_kwargs_train)
 
             if frame_time_next is not None:
                 rand_time_next = frame_time + (frame_time_next - frame_time) * torch.rand(1)[0]
-                _, _, _, extras_next = render(H, W, focal, chunk=args.chunk, rays=batch_rays, frame_time=rand_time_next,
+                _, _, _, extras_next = render(H, W, focal_x, focal_y, chunk=args.chunk, rays=batch_rays, frame_time=rand_time_next,
                                                 verbose=i < 10, retraw=True, z_vals=extras['z_vals'].detach(),
                                                 **render_kwargs_train)
 
@@ -946,7 +969,7 @@ def train():
             pose = poses[img_i, :3,:4]
             frame_time = times[img_i]
             with torch.no_grad():
-                rgb, disp, acc, extras = render(H, W, focal, chunk=args.chunk, c2w=pose, frame_time=frame_time,
+                rgb, disp, acc, extras = render(H, W, focal_x, focal_y, chunk=args.chunk, c2w=pose, frame_time=frame_time,
                                                     **render_kwargs_test)
 
             psnr = mse2psnr(img2mse(rgb, target))
@@ -970,7 +993,7 @@ def train():
             print("Rendering video...")
             with torch.no_grad():
                 savedir = os.path.join(basedir, expname, 'frames_{}_spiral_{:06d}_time/'.format(expname, i))
-                rgbs, disps = render_path(render_poses, render_times, hwf, args.chunk, render_kwargs_test, savedir=savedir)
+                rgbs, disps = render_path(render_poses, render_times, hwff, args.chunk, render_kwargs_test, savedir=savedir)
             print('Done, saving', rgbs.shape, disps.shape)
             moviebase = os.path.join(basedir, expname, '{}_spiral_{:06d}_'.format(expname, i))
             imageio.mimwrite(moviebase + 'rgb.mp4', to8b(rgbs), fps=30, quality=8)
@@ -988,7 +1011,7 @@ def train():
             print('Testing poses shape...', poses[i_test].shape)
             with torch.no_grad():
                 render_path(torch.Tensor(poses[i_test]).to(device), torch.Tensor(times[i_test]).to(device),
-                            hwf, args.chunk, render_kwargs_test, gt_imgs=images[i_test], savedir=testsavedir)
+                            hwff, args.chunk, render_kwargs_test, gt_imgs=images[i_test], savedir=testsavedir)
             print('Saved test set')
 
         global_step += 1
