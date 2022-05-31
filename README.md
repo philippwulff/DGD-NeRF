@@ -66,14 +66,7 @@ python run_dnerf.py --config configs/mutant.txt
 
 ## Citation
 If you use this code or ideas from the paper for your research, please cite our paper:
-```
-@article{pumarola2020d,
-  title={D-NeRF: Neural Radiance Fields for Dynamic Scenes},
-  author={Pumarola, Albert and Corona, Enric and Pons-Moll, Gerard and Moreno-Noguer, Francesc},
-  journal={arXiv preprint arXiv:2011.13961},
-  year={2020}
-}
-```
+
 
 
 ## Datasets
@@ -87,4 +80,15 @@ If you use this code or ideas from the paper for your research, please cite our 
   - Sitting scene may be good
 - LARR RGB-D Dataset for Dynamic Environments: https://haram-kim.github.io/LARR-RGB-D-datasets/
   - seems less good
+
+
+## References
   
+```
+@article{pumarola2020d,
+  title={D-NeRF: Neural Radiance Fields for Dynamic Scenes},
+  author={Pumarola, Albert and Corona, Enric and Pons-Moll, Gerard and Moreno-Noguer, Francesc},
+  journal={arXiv preprint arXiv:2011.13961},
+  year={2020}
+}
+```
