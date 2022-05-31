@@ -134,6 +134,7 @@ def render(H, W, focal_x, focal_y, chunk=1024*32, rays=None, c2w=None, ndc=True,
       rgb_map: [batch_size, 3]. Predicted RGB values for rays.
       disp_map: [batch_size]. Disparity map. Inverse of depth.
       acc_map: [batch_size]. Accumulated opacity (alpha) along a ray.
+      depth_map: [batch_size]. Predicted depth of pixel.
       extras: dict with everything returned by render_rays().
     """
     if c2w is not None:
@@ -173,7 +174,7 @@ def render(H, W, focal_x, focal_y, chunk=1024*32, rays=None, c2w=None, ndc=True,
         k_sh = list(sh[:-1]) + list(all_ret[k].shape[1:])
         all_ret[k] = torch.reshape(all_ret[k], k_sh)
 
-    k_extract = ['rgb_map', 'disp_map', 'acc_map']
+    k_extract = ['rgb_map', 'disp_map', 'acc_map', 'depth_map']
     ret_list = [all_ret[k] for k in k_extract]
     ret_dict = {k : all_ret[k] for k in all_ret if k not in k_extract}
     return ret_list + [ret_dict]
@@ -215,7 +216,7 @@ def render_path(render_poses, render_times, hwff, chunk, render_kwargs, gt_imgs=
     disps = []
 
     for i, (c2w, frame_time) in enumerate(zip(tqdm(render_poses), render_times)):
-        rgb, disp, acc, _ = render(H, W, focal_x, focal_y, chunk=chunk, c2w=c2w[:3,:4], frame_time=frame_time, **render_kwargs)
+        rgb, disp, acc, depth, _ = render(H, W, focal_x, focal_y, chunk=chunk, c2w=c2w[:3,:4], frame_time=frame_time, **render_kwargs)
         rgbs.append(rgb.cpu().numpy())
         disps.append(disp.cpu().numpy())
 
@@ -447,7 +448,7 @@ def render_rays(ray_batch,
     bounds = torch.reshape(ray_batch[...,6:9], [-1,1,3])
     near, far, frame_time = bounds[...,0], bounds[...,1], bounds[...,2] # [-1,1]
     z_samples = None
-    rgb_map_0, disp_map_0, acc_map_0, position_delta_0 = None, None, None, None
+    rgb_map_0, disp_map_0, acc_map_0, depth_map_0, position_delta_0 = None, None, None, None, None
 
     if z_vals is None:
         t_vals = torch.linspace(0., 1., steps=N_samples)
@@ -484,7 +485,7 @@ def render_rays(ray_batch,
         else:
             if use_two_models_for_fine:
                 raw, position_delta_0 = network_query_fn(pts, viewdirs, frame_time, network_fn)
-                rgb_map_0, disp_map_0, acc_map_0, weights, _ = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
+                rgb_map_0, disp_map_0, acc_map_0, weights, depth_map_0 = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
 
             else:
                 with torch.no_grad():
@@ -499,9 +500,9 @@ def render_rays(ray_batch,
     pts = rays_o[...,None,:] + rays_d[...,None,:] * z_vals[...,:,None] # [N_rays, N_samples + N_importance, 3]
     run_fn = network_fn if network_fine is None else network_fine
     raw, position_delta = network_query_fn(pts, viewdirs, frame_time, run_fn)
-    rgb_map, disp_map, acc_map, weights, _ = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
+    rgb_map, disp_map, acc_map, weights, depth_map = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
 
-    ret = {'rgb_map' : rgb_map, 'disp_map' : disp_map, 'acc_map' : acc_map, 'z_vals' : z_vals,
+    ret = {'rgb_map' : rgb_map, 'disp_map' : disp_map, 'acc_map' : acc_map, 'depth_map': depth_map, 'z_vals' : z_vals,
            'position_delta' : position_delta}
     if retraw:
         ret['raw'] = raw
@@ -512,6 +513,8 @@ def render_rays(ray_batch,
             ret['disp0'] = disp_map_0
         if acc_map_0 is not None:
             ret['acc0'] = acc_map_0
+        if depth_map_0 is not None:
+            ret['depth0'] = depth_map_0
         if position_delta_0 is not None:
             ret['position_delta_0'] = position_delta_0
         if z_samples is not None:
@@ -746,7 +749,7 @@ def train():
         with torch.no_grad():
             if args.render_test:
                 # render_test switches to test poses
-                images = images[i_test]
+                images = images[i_test] #TODO J: Do we want to also generate a depth video? Then render_path also needs to return depth
             else:
                 # Default is smoother render_poses path
                 images = None
@@ -783,6 +786,8 @@ def train():
 
     # Move training data to GPU
     images = torch.Tensor(images).to(device)
+    # FIXME J: 
+    depth_maps = torch.Tensor(depth_maps).to(device)
     poses = torch.Tensor(poses).to(device)
     times = torch.Tensor(times).to(device)
     if use_batching:
@@ -801,6 +806,7 @@ def train():
 
         # Sample random ray batch
         # TODO Johannes: Schauen ob es Sinn macht batches über mehrer bilder zu machen anstatt nur von einem
+        # target_depth_s müsste dann hier auch bestimmt werden
         if use_batching:
             raise NotImplementedError("Time not implemented")
 
@@ -826,6 +832,8 @@ def train():
                 img_i = np.random.choice(i_train[:max_sample])
 
             target = images[img_i]
+            #FIXME: J 
+            target_depth = depth_maps[img_i]
             pose = poses[img_i, :3, :4]
             frame_time = times[img_i]
              
@@ -852,9 +860,11 @@ def train():
                 rays_d = rays_d[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
                 batch_rays = torch.stack([rays_o, rays_d], 0)
                 target_s = target[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
+                #FIXME J: 
+                target_depth_s = target_depth[select_coords[:, 0], select_coords[:, 1]] # (N_rand,) # TODO J: Is this the right shape
 
         #####  Core optimization loop  #####
-        rgb, disp, acc, extras = render(H, W, focal_x, focal_y, chunk=args.chunk, rays=batch_rays, frame_time=frame_time,
+        rgb, disp, acc, depth, extras = render(H, W, focal_x, focal_y, chunk=args.chunk, rays=batch_rays, frame_time=frame_time,
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
 
@@ -870,18 +880,19 @@ def train():
 
             if frame_time_prev is not None:
                 rand_time_prev = frame_time_prev + (frame_time - frame_time_prev) * torch.rand(1)[0]
-                _, _, _, extras_prev = render(H, W, focal_x, focal_y, chunk=args.chunk, rays=batch_rays, frame_time=rand_time_prev,
+                _, _, _, _, extras_prev = render(H, W, focal_x, focal_y, chunk=args.chunk, rays=batch_rays, frame_time=rand_time_prev,
                                                 verbose=i < 10, retraw=True, z_vals=extras['z_vals'].detach(),
                                                 **render_kwargs_train)
 
             if frame_time_next is not None:
                 rand_time_next = frame_time + (frame_time_next - frame_time) * torch.rand(1)[0]
-                _, _, _, extras_next = render(H, W, focal_x, focal_y, chunk=args.chunk, rays=batch_rays, frame_time=rand_time_next,
+                _, _, _, _, extras_next = render(H, W, focal_x, focal_y, chunk=args.chunk, rays=batch_rays, frame_time=rand_time_next,
                                                 verbose=i < 10, retraw=True, z_vals=extras['z_vals'].detach(),
                                                 **render_kwargs_train)
 
         optimizer.zero_grad()
         img_loss = img2mse(rgb, target_s)
+        depth_loss = depth2mse(depth, target_depth_s) # FIXME J:
 
         tv_loss = 0
         if args.add_tv_loss:
@@ -895,13 +906,16 @@ def train():
                     tv_loss += ((extras['position_delta_0'] - extras_next['position_delta_0']).pow(2)).sum()
             tv_loss = tv_loss * args.tv_loss_weight
 
-        loss = img_loss + tv_loss
+        loss = img_loss + tv_loss + depth_loss
         psnr = mse2psnr(img_loss)
+        #FIXME J: psnr = mse2psnr((img_loss+depth_loss))
 
         if 'rgb0' in extras:
             img_loss0 = img2mse(extras['rgb0'], target_s)
-            loss = loss + img_loss0
+            depth_loss0 = depth2mse(extras['depth0'], target_depth_s)
+            loss = loss + img_loss0 + depth_loss0
             psnr0 = mse2psnr(img_loss0)
+            #FIXME J: psnr0 = mse2psnr((img_loss0 + depth_loss0))
 
         if args.do_half_precision:
             with amp.scale_loss(loss, optimizer) as scaled_loss:
@@ -941,12 +955,14 @@ def train():
             print('Saved checkpoints at', path)
 
         if i % args.i_print == 0:
-            tqdm_txt = f"[TRAIN] Iter: {i} Loss_fine: {img_loss.item()} PSNR: {psnr.item()}"
+            tqdm_txt = f"[TRAIN] Iter: {i} Loss_fine: {loss.item()} PSNR: {psnr.item()}" #FIXME: J: Changed img_loss to loss
             if args.add_tv_loss:
                 tqdm_txt += f" TV: {tv_loss.item()}"
             tqdm.write(tqdm_txt)
 
-            writer.add_scalar('loss', img_loss.item(), i)
+            writer.add_scalar('loss', loss.item(), i) #FIXME: J: Changed img_loss to loss
+            writer.add_scalar('img_loss', img_loss.item(), i)
+            writer.add_scalar('depth_loss', depth_loss.item(), i) 
             writer.add_scalar('psnr', psnr.item(), i)
             if 'rgb0' in extras:
                 writer.add_scalar('loss0', img_loss0.item(), i)
@@ -954,9 +970,9 @@ def train():
             if args.add_tv_loss:
                 writer.add_scalar('tv', tv_loss.item(), i)
 
-        del loss, img_loss, psnr, target_s
+        del loss, img_loss, depth_loss, psnr, target_s, target_depth_s
         if 'rgb0' in extras:
-            del img_loss0, psnr0
+            del img_loss0, depth_loss0, psnr0
         if args.add_tv_loss:
             del tv_loss
         del rgb, disp, acc, extras
@@ -966,22 +982,29 @@ def train():
             # Log a rendered validation view to Tensorboard
             img_i=np.random.choice(i_val)
             target = images[img_i]
+            # FIXME J: 
+            target_depth = depth_maps[img_i]
             pose = poses[img_i, :3,:4]
             frame_time = times[img_i]
             with torch.no_grad():
-                rgb, disp, acc, extras = render(H, W, focal_x, focal_y, chunk=args.chunk, c2w=pose, frame_time=frame_time,
+                rgb, disp, acc, depth, extras = render(H, W, focal_x, focal_y, chunk=args.chunk, c2w=pose, frame_time=frame_time,
                                                     **render_kwargs_test)
 
             psnr = mse2psnr(img2mse(rgb, target))
+            # FIXME J: psnr = mse2psnr((img2mse(rgb, target) + depth2mse(depth, target_depth))) ?
             writer.add_image('gt', to8b(target.cpu().numpy()), i, dataformats='HWC')
             writer.add_image('rgb', to8b(rgb.cpu().numpy()), i, dataformats='HWC')
             writer.add_image('disp', disp.cpu().numpy(), i, dataformats='HW')
             writer.add_image('acc', acc.cpu().numpy(), i, dataformats='HW')
+            # FIXME J: 
+            writer.add_image('depth', depth.cpu().numpy(), i, dataformats='HW')
 
             if 'rgb0' in extras:
                 writer.add_image('rgb_rough', to8b(extras['rgb0'].cpu().numpy()), i, dataformats='HWC')
             if 'disp0' in extras:
                 writer.add_image('disp_rough', extras['disp0'].cpu().numpy(), i, dataformats='HW')
+            if 'depth0' in extras:
+                writer.add_image('depth_rough', extras['depth0'].cpu().numpy(), i, dataformats='HW')
             if 'z_std' in extras:
                 writer.add_image('acc_rough', extras['z_std'].cpu().numpy(), i, dataformats='HW')
 
