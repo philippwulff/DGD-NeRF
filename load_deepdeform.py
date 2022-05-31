@@ -145,7 +145,9 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1):
     # relationship between the AOV and focal length: https://en.wikipedia.org/wiki/Angle_of_view
     H, W = imgs[0].shape[:2]
     camera_angle_x = float(meta['camera_angle_x'])      # horizontal AOV
-    focal = .5 * W / np.tan(.5 * camera_angle_x)        # focal length
+    camera_angle_y = float(meta['camera_angle_y'])      # horizontal AOV
+    focal_x = .5 * W / np.tan(.5 * camera_angle_x)        # focal length
+    focal_y = .5 * W / np.tan(.5 * camera_angle_y)
 
     # set the (novel) poses that are used to render novel views. Take them from the file, if given, else compute them from a sphere.
     if os.path.exists(os.path.join(basedir, 'transforms_{}.json'.format('render'))):
@@ -156,13 +158,14 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1):
             render_poses.append(np.array(frame['transform_matrix']))
         render_poses = np.array(render_poses).astype(np.float32)
     else:
-        render_poses = torch.stack([pose_spherical2(angle, 0, 6.0) for angle in np.linspace(-20,20,8+1)[:-1]], 0)       # changed from (-180,180,40+1)
+        render_poses = torch.stack([pose_spherical2(angle, 0, 6.0) for angle in np.linspace(-20,20,8+1)], 0)       # changed from (-180,180,40+1)
     render_times = torch.linspace(0., 1., render_poses.shape[0])
     
     if half_res:
         H = H//2
         W = W//2
-        focal = focal/2.
+        focal_x = focal_x/2.
+        focal_y = focal_y/2.
 
         imgs_half_res = np.zeros((imgs.shape[0], H, W, 3))
         depth_maps_half_res = np.zeros((depth_maps.shape[0], H, W, 1))
@@ -173,7 +176,8 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1):
         depth_maps = depth_maps_half_res
         # imgs = tf.image.resize_area(imgs, [400, 400]).numpy()
 
-    return imgs, depth_maps, poses, times, render_poses, render_times, [H, W, focal], i_split
+    # TODO also return focal_y
+    return imgs, depth_maps, poses, times, render_poses, render_times, [H, W, focal_x], i_split
 
 
 if __name__ == "__main__":

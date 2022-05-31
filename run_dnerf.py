@@ -433,6 +433,10 @@ def render_rays(ray_batch,
       acc0: See acc_map. Output for coarse model.
       z_std: [num_rays]. Standard deviation of distances along ray for each
         sample.
+      J: Also returns:
+      z_vals:
+      position_delta:
+
     """
 
     N_rays = ray_batch.shape[0]
