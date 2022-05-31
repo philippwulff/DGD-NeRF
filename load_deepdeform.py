@@ -176,8 +176,7 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1):
         depth_maps = depth_maps_half_res
         # imgs = tf.image.resize_area(imgs, [400, 400]).numpy()
 
-    # TODO also return focal_y
-    return imgs, depth_maps, poses, times, render_poses, render_times, [H, W, focal_x], i_split
+    return imgs, depth_maps, poses, times, render_poses, render_times, [H, W, focal_x, focal_y], i_split
 
 
 if __name__ == "__main__":
