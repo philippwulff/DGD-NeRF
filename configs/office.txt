@@ -1,4 +1,4 @@
-expname = office_correct_transform
+expname = office_01_new_focal_v2
 basedir = ./logs
 datadir = ./data/office
 dataset_type = deepdeform           
