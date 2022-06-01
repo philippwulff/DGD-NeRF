@@ -13,7 +13,7 @@ from load_blender import trans_t, rot_phi, rot_theta
 
 
 def pose_spherical2(alpha, beta, radius):
-    """Computes camera poses on a sphere around the world coordinate origin.
+    """Computes camera poses on a sphere around the world coordinate origin without spherical coordinates.
 
     Args:
         alpha (float): Rotation about the X-axis.
@@ -34,7 +34,7 @@ def pose_spiral(theta, z_cam, z_cam_glob, H, W):
     of the world coordinate origin and stay inside of the training camera's visibility cone.
 
     Args:
-        theta (float): Angle of rotation about Z_cam.
+        theta (float): Angle of rotation about Z_cam in degrees.
         z_cam (float): Distance in Z in camera coordinates.
         z_cam_glob (float): Distance in Z from global coordinate origin to the training camera.
         H (int): Image height.
@@ -45,8 +45,8 @@ def pose_spiral(theta, z_cam, z_cam_glob, H, W):
     """
     # in camera coordinates
     lim = min(H/W, W/H)
-    x_c = z_cam * lim * np.cos(theta)
-    y_c = z_cam * lim * np.sin(theta)
+    x_c = z_cam * lim * np.cos(theta * np.pi/180)
+    y_c = z_cam * lim * np.sin(theta * np.pi/180)
     # in world coordinates 
     x_w, y_w, z_w, _ = trans_t(z_cam_glob) @ torch.Tensor([x_c, y_c, z_cam, 1])
     alpha = - np.arctan(y_w/z_w) * 180/np.pi     # is rotation about X_global
@@ -195,18 +195,21 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1, render_pose_type="
 
     # set the (novel) poses that are used to render novel views. Take them from the file, if given, else compute them from a sphere.
     if os.path.exists(os.path.join(basedir, 'transforms_{}.json'.format('render'))):
+
         with open(os.path.join(basedir, 'transforms_{}.json'.format('render')), 'r') as fp:
             meta = json.load(fp)
         render_poses = []
         for frame in meta['frames']:
             render_poses.append(np.array(frame['transform_matrix']))
         render_poses = np.array(render_poses).astype(np.float32)
+
     else:
+
         if render_pose_type == "spherical":
             render_poses = torch.stack([pose_spherical2(0, angle, 6.0) for angle in np.linspace(-20,20,8+1)], 0)       # changed from (-180,180,40+1)
         elif render_pose_type == "spiral": 
             render_poses = torch.stack([pose_spiral(angle, z_cam_dist, 6.0, H, W) for angle, z_cam_dist in 
-                                        zip(np.linspace(0, 4 * np.pi, 30), np.linspace(0, -3, 30))], 0)
+                                        zip(np.linspace(0, 2*360, 30), np.linspace(0, -3, 30))], 0)
 
     render_times = torch.linspace(0., 1., render_poses.shape[0])
     
