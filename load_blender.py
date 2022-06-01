@@ -13,12 +13,14 @@ trans_t = lambda t : torch.Tensor([
     [0,0,1,t],
     [0,0,0,1]]).float()
 
+# Rotation about X
 rot_phi = lambda phi : torch.Tensor([
     [1,0,0,0],
     [0,np.cos(phi),-np.sin(phi),0],
     [0,np.sin(phi), np.cos(phi),0],
     [0,0,0,1]]).float()
 
+# Rotation about Y in the negative direction
 rot_theta = lambda th : torch.Tensor([
     [np.cos(th),0,-np.sin(th),0],
     [0,1,0,0],
@@ -74,23 +76,6 @@ def pose_spherical(theta, phi, radius):
     c2w = rot_phi(phi/180.*np.pi) @ c2w
     c2w = rot_theta(theta/180.*np.pi) @ c2w
     c2w = torch.Tensor(np.array([[-1,0,0,0],[0,0,1,0],[0,1,0,0],[0,0,0,1]])) @ c2w
-    return c2w
-
-
-def pose_spherical2(theta, phi, radius):
-    """Computes rotation matrix from spherical coordinates.
-
-    Args:
-        theta (float): Rotation about the Y-axis in the negative direction.
-        phi (float): Rotation about the X-axis.
-        radius (float): Translation in the radial direction.
-
-    Returns:
-        c2w: 4x4 Tensor. The camera-to-world homogeneous transformation matrix.
-    """
-    c2w = trans_t(radius)
-    c2w = rot_phi(phi/180.*np.pi) @ c2w
-    c2w = rot_theta(theta/180.*np.pi) @ c2w
     return c2w
 
 

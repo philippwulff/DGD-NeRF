@@ -9,7 +9,51 @@ import torch.nn.functional as F
 import cv2
 import math
 
-from load_blender import pose_spherical, pose_spherical2
+from load_blender import trans_t, rot_phi, rot_theta
+
+
+def pose_spherical2(alpha, beta, radius):
+    """Computes camera poses on a sphere around the world coordinate origin.
+
+    Args:
+        alpha (float): Rotation about the X-axis.
+        beta (float): Rotation about the Y-axis.
+        radius (float): Translation in the radial (Z) direction.
+
+    Returns:
+        c2w: 4x4 Tensor. The camera-to-world homogeneous transformation matrix.
+    """
+    c2w = trans_t(radius)
+    c2w = rot_phi(alpha/180.*np.pi) @ c2w
+    c2w = rot_theta(-beta/180.*np.pi) @ c2w
+    return c2w
+
+
+def pose_spiral(theta, z_cam, z_cam_glob, H, W):
+    """Computes camera poses that spiral out from the fixed training pose at (0, 0, z_glob) in the direction 
+    of the world coordinate origin and stay inside of the training camera's visibility cone.
+
+    Args:
+        theta (float): Angle of rotation about Z_cam.
+        z_cam (float): Distance in Z in camera coordinates.
+        z_cam_glob (float): Distance in Z from global coordinate origin to the training camera.
+        H (int): Image height.
+        W (int): Image width.
+
+    Returns:
+        c2w: 4x4 Tensor.
+    """
+    # in camera coordinates
+    lim = min(H/W, W/H)
+    x_c = z_cam * lim * np.cos(theta)
+    y_c = z_cam * lim * np.sin(theta)
+    # in world coordinates 
+    x_w, y_w, z_w, _ = trans_t(z_cam_glob) @ torch.Tensor([x_c, y_c, z_cam, 1])
+    alpha = - np.arctan(y_w/z_w) * 180/np.pi     # is rotation about X_global
+    beta = np.arctan(x_w/z_w) * 180/np.pi      # rotation about Y_global
+    radius = np.sqrt(x_w**2 + y_w**2 + z_w**2)
+    c2w = pose_spherical2(alpha, beta, radius)
+    return c2w#, (x_w, y_w, z_w)
 
 
 def extract_deepdeform_data(datadir, scene_name, start_frame_i=0, end_frame_i=None, step=1, train_p=0.7, val_p=0.15, test_p=0.15):
@@ -86,7 +130,7 @@ def extract_deepdeform_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
             json.dump(transforms, f, ensure_ascii=False, indent=4)
 
 
-def load_deepdeform_data(basedir, half_res=False, testskip=1):
+def load_deepdeform_data(basedir, half_res=False, testskip=1, render_pose_type="spherical"):
 
     splits = ['train', 'val', 'test']
     metas = {}
@@ -158,7 +202,12 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1):
             render_poses.append(np.array(frame['transform_matrix']))
         render_poses = np.array(render_poses).astype(np.float32)
     else:
-        render_poses = torch.stack([pose_spherical2(angle, 0, 6.0) for angle in np.linspace(-20,20,8+1)], 0)       # changed from (-180,180,40+1)
+        if render_pose_type == "spherical":
+            render_poses = torch.stack([pose_spherical2(0, angle, 6.0) for angle in np.linspace(-20,20,8+1)], 0)       # changed from (-180,180,40+1)
+        elif render_pose_type == "spiral": 
+            render_poses = torch.stack([pose_spiral(angle, z_cam_dist, 6.0, H, W) for angle, z_cam_dist in 
+                                        zip(np.linspace(0, 4 * np.pi, 30), np.linspace(0, -3, 30))], 0)
+
     render_times = torch.linspace(0., 1., render_poses.shape[0])
     
     if half_res:

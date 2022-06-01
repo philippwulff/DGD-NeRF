@@ -1,4 +1,4 @@
-expname = office_new_focal
+expname = office_08_weighted_depth_loss_removed_zero_depth_pixels
 basedir = ./logs
 datadir = ./data/office
 dataset_type = deepdeform           
@@ -23,3 +23,5 @@ precrop_frac = 0.5
 
 half_res = True
 do_half_precision = False
+
+i_img = 1000
