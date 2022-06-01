@@ -684,7 +684,7 @@ def train():
 
     elif args.dataset_type == 'deepdeform':
         images, depth_maps, poses, times, render_poses, render_times, hwff, i_split = load_deepdeform_data(args.datadir, args.half_res, args.testskip)
-        print('Loaded deepdeform', images.shape, render_poses.shape, hwff, args.datadir)
+        print('__Loaded deepdeform__:', 'images.shape:', images.shape, 'render_poses.shape:', render_poses.shape, 'hwff:', hwff, 'args.datadir:', args.datadir)
         i_train, i_val, i_test = i_split
 
         near = 0.1
@@ -862,12 +862,18 @@ def train():
                 target_s = target[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
                 #FIXME J: 
                 target_depth_s = target_depth[select_coords[:, 0], select_coords[:, 1]] # (N_rand,) # TODO J: Is this the right shape
+                target_depth_s = target_depth_s.squeeze()
 
         #####  Core optimization loop  #####
         rgb, disp, acc, depth, extras = render(H, W, focal_x, focal_y, chunk=args.chunk, rays=batch_rays, frame_time=frame_time,
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
-
+        
+        # Remove invalid depth pixels #FIXME J:
+        inds_nonzero = target_depth_s.nonzero().squeeze()
+        target_depth_s = target_depth_s[inds_nonzero]
+        depth = depth[inds_nonzero]
+        
         if args.add_tv_loss:
             frame_time_prev = times[img_i - 1] if img_i > 0 else None
             frame_time_next = times[img_i + 1] if img_i < times.shape[0] - 1 else None
@@ -906,14 +912,15 @@ def train():
                     tv_loss += ((extras['position_delta_0'] - extras_next['position_delta_0']).pow(2)).sum()
             tv_loss = tv_loss * args.tv_loss_weight
 
-        loss = img_loss + tv_loss + depth_loss
+        loss = img_loss + tv_loss + 0.01*depth_loss
         psnr = mse2psnr(img_loss)
         #FIXME J: psnr = mse2psnr((img_loss+depth_loss))
 
         if 'rgb0' in extras:
             img_loss0 = img2mse(extras['rgb0'], target_s)
-            depth_loss0 = depth2mse(extras['depth0'], target_depth_s)
-            loss = loss + img_loss0 + depth_loss0
+            depth_loss0 = depth2mse(extras['depth0'][inds_nonzero].squeeze(), target_depth_s) #FIXME J: Not tested yet: set use_two_models_fine=True
+            loss0 = img_loss0 + depth_loss0
+            loss = loss + loss0
             psnr0 = mse2psnr(img_loss0)
             #FIXME J: psnr0 = mse2psnr((img_loss0 + depth_loss0))
 
@@ -965,7 +972,9 @@ def train():
             writer.add_scalar('depth_loss', depth_loss.item(), i) 
             writer.add_scalar('psnr', psnr.item(), i)
             if 'rgb0' in extras:
-                writer.add_scalar('loss0', img_loss0.item(), i)
+                writer.add_scalar('loss0', loss0.item(), i)
+                writer.add_scalar('img_loss0', img_loss0.item(), i)
+                writer.add_scalar('depth_loss0', depth_loss0.item(), i)
                 writer.add_scalar('psnr0', psnr0.item(), i)
             if args.add_tv_loss:
                 writer.add_scalar('tv', tv_loss.item(), i)
@@ -983,7 +992,7 @@ def train():
             img_i=np.random.choice(i_val)
             target = images[img_i]
             # FIXME J: 
-            target_depth = depth_maps[img_i]
+            target_depth = depth_maps[img_i].squeeze()
             pose = poses[img_i, :3,:4]
             frame_time = times[img_i]
             with torch.no_grad():
@@ -997,6 +1006,7 @@ def train():
             writer.add_image('disp', disp.cpu().numpy(), i, dataformats='HW')
             writer.add_image('acc', acc.cpu().numpy(), i, dataformats='HW')
             # FIXME J: 
+            writer.add_image('gt depth', target_depth.cpu().numpy(), i, dataformats='HW')
             writer.add_image('depth', depth.cpu().numpy(), i, dataformats='HW')
 
             if 'rgb0' in extras:
