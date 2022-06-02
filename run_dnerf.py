@@ -17,7 +17,7 @@ except ImportError:
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")           
 if device.type == "cuda":
-    print(f"[Info] Using CUDA version {torch.version.cuda} on {torch.cuda.get_device_name(device.index)} \
+    print(f"[Info] Using CUDA version {torch.version.cuda} on {torch.cuda.get_device_name(device.index).strip()} \
             with global GPU index {os.environ['CUDA_VISIBLE_DEVICES']}")
 np.random.seed(0)
 DEBUG = False
@@ -116,8 +116,8 @@ def render(H, W, focal_x, focal_y, chunk=1024*32, rays=None, c2w=None, ndc=True,
     Args:
       H: int. Height of image in pixels.
       W: int. Width of image in pixels.
-      focal_x: float. Focal length of pinhole camera.
-      focal_y: float. Focal length of pinhole camera.
+      focal_x: float. Focal length in X direction.
+      focal_y: float. Focal length in Y direction.
       chunk: int. Maximum number of rays to process simultaneously. Used to
         control maximum memory usage. Does not affect final results.
       rays: array of shape [2, batch_size, 3]. Ray origin and direction for
@@ -346,7 +346,7 @@ def create_nerf(args):
 
 
 def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, white_bkgd=False, pytest=False):
-    """Transforms model's predictions to semantically meaningful values.
+    """Transforms model's predictions to semantically meaningful values. This is sec. 4.2 in D-NeRF.
     Args:
         raw: [num_rays, num_samples along ray, 4]. Prediction from model.
         z_vals: [num_rays, num_samples along ray]. Integration time.
@@ -358,8 +358,6 @@ def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, white_bkgd=False, pytest=F
         weights: [num_rays, num_samples]. Weights assigned to each sampled color.
         depth_map: [num_rays]. Estimated distance to object.
     """
-    raw2alpha = lambda raw, dists, act_fn=F.relu: 1.-torch.exp(-act_fn(raw)*dists)
-
     dists = z_vals[...,1:] - z_vals[...,:-1]
     dists = torch.cat([dists, torch.Tensor([1e10]).expand(dists[...,:1].shape)], -1)  # [N_rays, N_samples]
 
@@ -376,9 +374,13 @@ def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, white_bkgd=False, pytest=F
             noise = np.random.rand(*list(raw[...,3].shape)) * raw_noise_std
             noise = torch.Tensor(noise)
 
+    # D-NeRF-Eq. (7)
+    raw2alpha = lambda raw, dists, act_fn=F.relu: 1.-torch.exp(-act_fn(raw)*dists)
     alpha = raw2alpha(raw[...,3] + noise, dists)  # [N_rays, N_samples]
     # weights = alpha * tf.math.cumprod(1.-alpha + 1e-10, -1, exclusive=True)
+    # Combines D-NeRF-Eq. (8) and alpha
     weights = alpha * torch.cumprod(torch.cat([torch.ones((alpha.shape[0], 1)), 1.-alpha + 1e-10], -1), -1)[:, :-1]
+    # D-NeRF-Eq. (6)
     rgb_map = torch.sum(weights[...,None] * rgb, -2)  # [N_rays, 3]
 
     depth_map = torch.sum(weights * z_vals, -1)
@@ -427,19 +429,21 @@ def render_rays(ray_batch,
       raw_noise_std: ...
       verbose: bool. If True, print more debugging info.
     Returns:
-      rgb_map: [num_rays, 3]. Estimated RGB color of a ray. Comes from fine model.
-      disp_map: [num_rays]. Disparity map. 1 / depth.
-      acc_map: [num_rays]. Accumulated opacity along each ray. Comes from fine model.
-      raw: [num_rays, num_samples, 4]. Raw predictions from model.
-      rgb0: See rgb_map. Output for coarse model.
-      disp0: See disp_map. Output for coarse model.
-      acc0: See acc_map. Output for coarse model.
-      z_std: [num_rays]. Standard deviation of distances along ray for each
-        sample.
-      J: Also returns:
-      z_vals:
-      position_delta:
-
+        ret (dict): Dictionary with these keys:
+            rgb_map: [num_rays, 3]. Estimated RGB color of a ray. Comes from fine model.
+            disp_map: [num_rays]. Disparity map. 1 / depth.
+            acc_map: [num_rays]. Accumulated opacity along each ray. Comes from fine model.
+            depth_map: TODO
+            raw: [num_rays, num_samples, 4]. Raw predictions from model.
+            z_vals: TODO
+            position_delta: TODO
+            rgb0: See rgb_map. Output for coarse model.
+            disp0: See disp_map. Output for coarse model.
+            acc0: See acc_map. Output for coarse model.
+            depth0: See depth_map. Output for coarse model.
+            z_std: [num_rays]. Standard deviation of distances along ray for each sample.
+            position_delta_0: TODO
+            z_std: TODO
     """
 
     N_rays = ray_batch.shape[0]
@@ -502,8 +506,14 @@ def render_rays(ray_batch,
     raw, position_delta = network_query_fn(pts, viewdirs, frame_time, run_fn)
     rgb_map, disp_map, acc_map, weights, depth_map = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
 
-    ret = {'rgb_map' : rgb_map, 'disp_map' : disp_map, 'acc_map' : acc_map, 'depth_map': depth_map, 'z_vals' : z_vals,
-           'position_delta' : position_delta}
+    ret = {
+        'rgb_map': rgb_map,
+        'disp_map': disp_map,
+        'acc_map': acc_map,
+        'depth_map': depth_map,
+        'z_vals': z_vals,
+        'position_delta': position_delta
+    }
     if retraw:
         ret['raw'] = raw
     if N_importance > 0:
@@ -613,10 +623,14 @@ def config_parser():
                         help='evaluate tv loss')
     parser.add_argument("--tv_loss_weight", type=float,
                         default=1.e-4, help='weight of tv loss')
+    parser.add_argument("--add_depth_loss", action="store_true",
+                        help="use depth maps for supervision")
+    parser.add_argument("--depth_loss_weight", type=float,
+                        default=0.01, help='weight of depth loss')
 
     # dataset options
     parser.add_argument("--dataset_type", type=str, default='llff', 
-                        help='options: llff / blender / deepvoxels')
+                        help='options: llff / blender / deepvoxels / deepdeform')
     parser.add_argument("--testskip", type=int, default=2,
                         help='will load 1/N images from test/val sets, useful for large datasets like deepvoxels')
 
@@ -672,6 +686,7 @@ def train():
         hwff = hwf + [hwf[2]]       # focal_x = focal_y
         near = 2.
         far = 6.
+        depth_maps = None
 
         # the RGBA-to-RGB conversion depends on the background color (alpha compositioning)
         # see https://stackoverflow.com/questions/2049230/convert-rgba-color-to-rgb
@@ -694,16 +709,21 @@ def train():
         # No RGB-to-RGBA conversion needed
 
     else:
-        print('Unknown dataset type', args.dataset_type, 'exiting')
+        print('Unknown dataset type: ', args.dataset_type, '. Exiting')
         return
 
     min_time, max_time = times[i_train[0]], times[i_train[-1]]
     if args.dataset_type == "blender":
         assert min_time == 0., "time must start at 0"
         assert max_time == 1., "max time must be 1"
-    elif args.dataset_type == "deepdeform":             # Because DeepDeform is real data, there cannot be a t=0 img in every split
+    elif args.dataset_type == "deepdeform":             # There cannot be a t=0 img in every split in DeepDeform
         assert min_time >= 0., "time must be >= 0"
         assert max_time <= 1., "max time must be <= 1"
+
+    comp_depth = True if args.add_depth_loss else False
+    if not depth_maps and comp_depth:
+        print("No depth maps loaded. Cannot apply depth loss. Exiting.")
+        return
 
     # Cast intrinsics to right types
     H, W, focal_x, focal_y = hwff
@@ -787,7 +807,8 @@ def train():
     # Move training data to GPU
     images = torch.Tensor(images).to(device)
     # FIXME J: 
-    depth_maps = torch.Tensor(depth_maps).to(device)
+    if comp_depth:
+        depth_maps = torch.Tensor(depth_maps).to(device)
     poses = torch.Tensor(poses).to(device)
     times = torch.Tensor(times).to(device)
     if use_batching:
@@ -833,7 +854,8 @@ def train():
 
             target = images[img_i]
             #FIXME: J 
-            target_depth = depth_maps[img_i]
+            if comp_depth:
+                target_depth = depth_maps[img_i]
             pose = poses[img_i, :3, :4]
             frame_time = times[img_i]
              
@@ -861,8 +883,9 @@ def train():
                 batch_rays = torch.stack([rays_o, rays_d], 0)
                 target_s = target[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
                 #FIXME J: 
-                target_depth_s = target_depth[select_coords[:, 0], select_coords[:, 1]] # (N_rand,) # TODO J: Is this the right shape
-                target_depth_s = target_depth_s.squeeze()
+                if comp_depth:
+                    target_depth_s = target_depth[select_coords[:, 0], select_coords[:, 1]] # (N_rand,) # TODO J: Is this the right shape
+                    target_depth_s = target_depth_s.squeeze()
 
         #####  Core optimization loop  #####
         rgb, disp, acc, depth, extras = render(H, W, focal_x, focal_y, chunk=args.chunk, rays=batch_rays, frame_time=frame_time,
@@ -870,9 +893,10 @@ def train():
                                                 **render_kwargs_train)
         
         # Remove invalid depth pixels #FIXME J:
-        inds_nonzero = target_depth_s.nonzero().squeeze()
-        target_depth_s = target_depth_s[inds_nonzero]
-        depth = depth[inds_nonzero]
+        if comp_depth:
+            inds_nonzero = target_depth_s.nonzero().squeeze()
+            target_depth_s = target_depth_s[inds_nonzero]
+            depth = depth[inds_nonzero]
         
         if args.add_tv_loss:
             frame_time_prev = times[img_i - 1] if img_i > 0 else None
@@ -898,7 +922,6 @@ def train():
 
         optimizer.zero_grad()
         img_loss = img2mse(rgb, target_s)
-        depth_loss = depth2mse(depth, target_depth_s) # FIXME J:
 
         tv_loss = 0
         if args.add_tv_loss:
@@ -912,14 +935,21 @@ def train():
                     tv_loss += ((extras['position_delta_0'] - extras_next['position_delta_0']).pow(2)).sum()
             tv_loss = tv_loss * args.tv_loss_weight
 
-        loss = img_loss + tv_loss + 0.01*depth_loss
+        loss = img_loss + tv_loss 
+        # FIXME J:
+        if args.add_depth_loss:
+            depth_loss = depth2mse(depth, target_depth_s)
+            loss += args.depth_loss_weight * depth_loss 
+
         psnr = mse2psnr(img_loss)
         #FIXME J: psnr = mse2psnr((img_loss+depth_loss))
 
         if 'rgb0' in extras:
             img_loss0 = img2mse(extras['rgb0'], target_s)
-            depth_loss0 = depth2mse(extras['depth0'][inds_nonzero].squeeze(), target_depth_s) #FIXME J: Not tested yet: set use_two_models_fine=True
-            loss0 = img_loss0 + depth_loss0
+            loss0 = img_loss0
+            if args.add_depth_loss:
+                depth_loss0 = depth2mse(extras['depth0'][inds_nonzero].squeeze(), target_depth_s) #FIXME J: Not tested yet: set use_two_models_fine=True
+                loss0 += args.depth_loss_weight * depth_loss0
             loss = loss + loss0
             psnr0 = mse2psnr(img_loss0)
             #FIXME J: psnr0 = mse2psnr((img_loss0 + depth_loss0))
@@ -946,7 +976,7 @@ def train():
         #####           end            #####
 
         # Rest is logging
-        if i%args.i_weights==0:
+        if i%args.i_weights == 0:
             path = os.path.join(basedir, expname, '{:06d}.tar'.format(i))
             save_dict = {
                 'global_step': global_step,
@@ -962,61 +992,83 @@ def train():
             print('Saved checkpoints at', path)
 
         if i % args.i_print == 0:
-            tqdm_txt = f"[TRAIN] Iter: {i} Loss_fine: {loss.item()} PSNR: {psnr.item()}" #FIXME: J: Changed img_loss to loss
+            tqdm_txt = f"[TRAIN] Iter: {i} Loss_fine: {img_loss.item()} PSNR: {psnr.item()}"
             if args.add_tv_loss:
                 tqdm_txt += f" TV: {tv_loss.item()}"
+            if args.add_depth_loss:
+                tqdm_txt += f" Depth: {depth_loss.item()}"
             tqdm.write(tqdm_txt)
 
-            writer.add_scalar('loss', loss.item(), i) #FIXME: J: Changed img_loss to loss
-            writer.add_scalar('img_loss', img_loss.item(), i)
-            writer.add_scalar('depth_loss', depth_loss.item(), i) 
-            writer.add_scalar('psnr', psnr.item(), i)
+            writer.add_scalar('train_loss', loss.item(), i) #FIXME: J: Changed img_loss to loss
+            writer.add_scalar('train_img_loss', img_loss.item(), i)
+            writer.add_scalar('train_psnr', psnr.item(), i)
             if 'rgb0' in extras:
-                writer.add_scalar('loss0', loss0.item(), i)
-                writer.add_scalar('img_loss0', img_loss0.item(), i)
-                writer.add_scalar('depth_loss0', depth_loss0.item(), i)
-                writer.add_scalar('psnr0', psnr0.item(), i)
+                writer.add_scalar('train_loss0', loss0.item(), i)
+                writer.add_scalar('train_img_loss0', img_loss0.item(), i)
+                if args.add_depth_loss:
+                    writer.add_scalar('train_depth_loss0', depth_loss0.item(), i)
+                writer.add_scalar('train_psnr0', psnr0.item(), i)
             if args.add_tv_loss:
-                writer.add_scalar('tv', tv_loss.item(), i)
+                writer.add_scalar('train_tv', tv_loss.item(), i)
+            if args.add_depth_loss:
+                writer.add_scalar('train_depth_loss', depth_loss.item(), i) 
 
-        del loss, img_loss, depth_loss, psnr, target_s, target_depth_s
+        del loss, img_loss, psnr, target_s
         if 'rgb0' in extras:
-            del img_loss0, depth_loss0, psnr0
+            del img_loss0, psnr0
         if args.add_tv_loss:
             del tv_loss
+        if args.add_depth_loss:
+            del depth_loss, target_depth_s
+            if "rgb0" in extras:
+                del depth_loss0
         del rgb, disp, acc, extras
 
-        if i%args.i_img==0:
+        if i%args.i_img == 0:
             torch.cuda.empty_cache()
             # Log a rendered validation view to Tensorboard
             img_i=np.random.choice(i_val)
             target = images[img_i]
             # FIXME J: 
-            target_depth = depth_maps[img_i].squeeze()
+            if depth_maps:
+                target_depth = depth_maps[img_i].squeeze()
             pose = poses[img_i, :3,:4]
             frame_time = times[img_i]
             with torch.no_grad():
                 rgb, disp, acc, depth, extras = render(H, W, focal_x, focal_y, chunk=args.chunk, c2w=pose, frame_time=frame_time,
                                                     **render_kwargs_test)
 
-            psnr = mse2psnr(img2mse(rgb, target))
+            img_loss = img2mse(rgb, target)
+            loss = img_loss
+            if args.add_depth_loss:
+                depth_loss = depth2mse(depth, target_depth)
+                loss += depth_loss
+            psnr = mse2psnr(img_loss)       # FIXME Ist das hier nur vom img_loss? Nicht vom gesamt loss?
             # FIXME J: psnr = mse2psnr((img2mse(rgb, target) + depth2mse(depth, target_depth))) ?
-            writer.add_image('gt', to8b(target.cpu().numpy()), i, dataformats='HWC')
-            writer.add_image('rgb', to8b(rgb.cpu().numpy()), i, dataformats='HWC')
-            writer.add_image('disp', disp.cpu().numpy(), i, dataformats='HW')
-            writer.add_image('acc', acc.cpu().numpy(), i, dataformats='HW')
+
+            writer.add_scalar('val_loss', loss.item(), i) #FIXME: J: Changed img_loss to loss
+            writer.add_scalar('val_img_loss', img_loss.item(), i)
+            if args.add_depth_loss:
+                writer.add_scalar('val_depth_loss', depth_loss.item(), i) 
+            writer.add_scalar('val_psnr', psnr.item(), i)
+            writer.add_image('val_rgb_gt', to8b(target.cpu().numpy()), i, dataformats='HWC')
+            writer.add_image('val_rgb', to8b(rgb.cpu().numpy()), i, dataformats='HWC')
+            writer.add_image('val_disp', disp.cpu().numpy(), i, dataformats='HW')
+            writer.add_image('val_acc', acc.cpu().numpy(), i, dataformats='HW')
             # FIXME J: 
-            writer.add_image('gt depth', target_depth.cpu().numpy(), i, dataformats='HW')
-            writer.add_image('depth', depth.cpu().numpy(), i, dataformats='HW')
+            if target_depth:
+                writer.add_image('val_depth_gt', target_depth.cpu().numpy(), i, dataformats='HW')
+            if depth: 
+                writer.add_image('val_depth', depth.cpu().numpy(), i, dataformats='HW')
 
             if 'rgb0' in extras:
-                writer.add_image('rgb_rough', to8b(extras['rgb0'].cpu().numpy()), i, dataformats='HWC')
+                writer.add_image('val_rgb_rough', to8b(extras['rgb0'].cpu().numpy()), i, dataformats='HWC')
             if 'disp0' in extras:
-                writer.add_image('disp_rough', extras['disp0'].cpu().numpy(), i, dataformats='HW')
+                writer.add_image('val_disp_rough', extras['disp0'].cpu().numpy(), i, dataformats='HW')
             if 'depth0' in extras:
-                writer.add_image('depth_rough', extras['depth0'].cpu().numpy(), i, dataformats='HW')
+                writer.add_image('val_depth_rough', extras['depth0'].cpu().numpy(), i, dataformats='HW')
             if 'z_std' in extras:
-                writer.add_image('acc_rough', extras['z_std'].cpu().numpy(), i, dataformats='HW')
+                writer.add_image('val_acc_rough', extras['z_std'].cpu().numpy(), i, dataformats='HW')
 
             print("finish summary")
             writer.flush()

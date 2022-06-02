@@ -10,6 +10,7 @@ not_zero_canonical = False
 use_viewdirs = False
 white_bkgd = False
 lrate_decay = 500
+use_depth_loss = True
 
 N_iter = 800000
 N_samples = 64
