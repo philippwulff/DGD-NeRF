@@ -112,7 +112,8 @@ def render(H, W, focal_x, focal_y, chunk=1024*32, rays=None, c2w=None, ndc=True,
                   near=0., far=1., frame_time=None,
                   use_viewdirs=False, c2w_staticcam=None,
                   **kwargs):
-    """Render rays
+    """Calls methods to render the given rays.
+
     Args:
       H: int. Height of image in pixels.
       W: int. Width of image in pixels.
@@ -130,6 +131,7 @@ def render(H, W, focal_x, focal_y, chunk=1024*32, rays=None, c2w=None, ndc=True,
       use_viewdirs: bool. If True, use viewing direction of a point in space in model.
       c2w_staticcam: array of shape [3, 4]. If not None, use this transformation matrix for 
        camera while using other c2w argument for viewing directions.
+
     Returns:
       rgb_map: [batch_size, 3]. Predicted RGB values for rays.
       disp_map: [batch_size]. Disparity map. Inverse of depth.
@@ -169,7 +171,7 @@ def render(H, W, focal_x, focal_y, chunk=1024*32, rays=None, c2w=None, ndc=True,
         rays = torch.cat([rays, viewdirs], -1)
 
     # Render and reshape
-    all_ret = batchify_rays(rays, chunk, **kwargs)          # TODO P: this is calling render() again??? Wie funzt das?
+    all_ret = batchify_rays(rays, chunk, **kwargs)      
     for k in all_ret:
         k_sh = list(sh[:-1]) + list(all_ret[k].shape[1:])
         all_ret[k] = torch.reshape(all_ret[k], k_sh)
@@ -409,7 +411,9 @@ def render_rays(ray_batch,
                 pytest=False,
                 z_vals=None,
                 use_two_models_for_fine=False):
-    """Volumetric rendering.
+    """Performs volumetric rendering, i.e. computes a RGB images and depth map by querying the model in spatial
+    locations along the given rays and computing the volume rendering integral.
+
     Args:
       ray_batch: array of shape [batch_size, ...]. All information necessary
         for sampling along a ray, including: ray origin, ray direction, min
@@ -428,6 +432,7 @@ def render_rays(ray_batch,
       white_bkgd: bool. If True, assume a white background.
       raw_noise_std: ...
       verbose: bool. If True, print more debugging info.
+      z_vals: [num_rays, num_samples along ray]. Integration time.
     Returns:
         ret (dict): Dictionary with these keys:
             rgb_map: [num_rays, 3]. Estimated RGB color of a ray. Comes from fine model.
@@ -454,7 +459,7 @@ def render_rays(ray_batch,
     z_samples = None
     rgb_map_0, disp_map_0, acc_map_0, depth_map_0, position_delta_0 = None, None, None, None, None
 
-    if z_vals is None:
+    if z_vals is None:      # create coarse integration locations along the rays 
         t_vals = torch.linspace(0., 1., steps=N_samples)
         if not lindisp:
             z_vals = near * (1.-t_vals) + far * (t_vals)
@@ -482,12 +487,12 @@ def render_rays(ray_batch,
         pts = rays_o[...,None,:] + rays_d[...,None,:] * z_vals[...,:,None] # [N_rays, N_samples, 3]
 
 
-        if N_importance <= 0:
+        if N_importance <= 0:       # If no additional fine samples
             raw, position_delta = network_query_fn(pts, viewdirs, frame_time, network_fn)
             rgb_map, disp_map, acc_map, weights, depth_map = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
 
-        else:
-            if use_two_models_for_fine:
+        else:                       
+            if use_two_models_for_fine:     # 
                 raw, position_delta_0 = network_query_fn(pts, viewdirs, frame_time, network_fn)
                 rgb_map_0, disp_map_0, acc_map_0, weights, depth_map_0 = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
 
@@ -721,7 +726,7 @@ def train():
         assert max_time <= 1., "max time must be <= 1"
 
     comp_depth = True if args.add_depth_loss else False
-    if not depth_maps and comp_depth:
+    if depth_maps is None and comp_depth:
         print("No depth maps loaded. Cannot apply depth loss. Exiting.")
         return
 
@@ -885,7 +890,7 @@ def train():
                     target_depth_s = target_depth[select_coords[:, 0], select_coords[:, 1]] # (N_rand,) # TODO J: Is this the right shape
                     target_depth_s = target_depth_s.squeeze()
 
-        #####  Core optimization loop  #####
+        ####################  Core optimization loop  ####################
         rgb, disp, acc, depth, extras = render(H, W, focal_x, focal_y, chunk=args.chunk, rays=batch_rays, frame_time=frame_time,
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
@@ -966,13 +971,15 @@ def train():
         new_lrate = args.lrate * (decay_rate ** (global_step / decay_steps))
         for param_group in optimizer.param_groups:
             param_group['lr'] = new_lrate
+            
         ################################
 
         dt = time.time()-time0
         # print(f"Step: {global_step}, Loss: {loss}, Time: {dt}")
         #####           end            #####
 
-        # Rest is logging
+        ############################ LOGGING ################################
+
         if i%args.i_weights == 0:
             path = os.path.join(basedir, expname, '{:06d}.tar'.format(i))
             save_dict = {
@@ -1021,13 +1028,13 @@ def train():
                 del depth_loss0
         del rgb, disp, acc, extras
 
-        if i%args.i_img == 0:
+        if i%args.i_img == 0:       # Log a rendered validation view to Tensorboard
             torch.cuda.empty_cache()
-            # Log a rendered validation view to Tensorboard
+            
             img_i=np.random.choice(i_val)
             target = images[img_i]
 
-            if depth_maps:
+            if not depth_maps is None:
                 target_depth = depth_maps[img_i].squeeze()
             pose = poses[img_i, :3,:4]
             frame_time = times[img_i]
@@ -1053,9 +1060,8 @@ def train():
             writer.add_image('val_6_disp', disp.cpu().numpy(), i, dataformats='HW')
             writer.add_image('val_5_acc', acc.cpu().numpy(), i, dataformats='HW')
             
-            if target_depth:
+            if args.add_depth_loss:
                 writer.add_image('val_3_depth_gt', target_depth.cpu().numpy(), i, dataformats='HW')
-            if depth: 
                 writer.add_image('val_4_depth', depth.cpu().numpy(), i, dataformats='HW')
 
             if 'rgb0' in extras:
@@ -1070,8 +1076,8 @@ def train():
             print("finish summary")
             writer.flush()
 
-        if i%args.i_video==0:
-            # Turn on testing mode
+        if i%args.i_video==0:       # Turn on testing mode
+            
             print("Rendering video...")
             with torch.no_grad():
                 savedir = os.path.join(basedir, expname, 'frames_{}_spiral_{:06d}_time/'.format(expname, i))
