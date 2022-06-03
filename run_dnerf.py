@@ -806,7 +806,6 @@ def train():
 
     # Move training data to GPU
     images = torch.Tensor(images).to(device)
-    # FIXME J: 
     if comp_depth:
         depth_maps = torch.Tensor(depth_maps).to(device)
     poses = torch.Tensor(poses).to(device)
@@ -853,7 +852,6 @@ def train():
                 img_i = np.random.choice(i_train[:max_sample])
 
             target = images[img_i]
-            #FIXME: J 
             if comp_depth:
                 target_depth = depth_maps[img_i]
             pose = poses[img_i, :3, :4]
@@ -882,7 +880,7 @@ def train():
                 rays_d = rays_d[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
                 batch_rays = torch.stack([rays_o, rays_d], 0)
                 target_s = target[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
-                #FIXME J: 
+
                 if comp_depth:
                     target_depth_s = target_depth[select_coords[:, 0], select_coords[:, 1]] # (N_rand,) # TODO J: Is this the right shape
                     target_depth_s = target_depth_s.squeeze()
@@ -892,7 +890,7 @@ def train():
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
         
-        # Remove invalid depth pixels #FIXME J:
+        # Remove invalid depth pixels
         if comp_depth:
             inds_nonzero = target_depth_s.nonzero().squeeze()
             target_depth_s = target_depth_s[inds_nonzero]
@@ -936,7 +934,6 @@ def train():
             tv_loss = tv_loss * args.tv_loss_weight
 
         loss = img_loss + tv_loss 
-        # FIXME J:
         if args.add_depth_loss:
             depth_loss = depth2mse(depth, target_depth_s)
             loss += args.depth_loss_weight * depth_loss 
@@ -999,19 +996,19 @@ def train():
                 tqdm_txt += f" Depth: {depth_loss.item()}"
             tqdm.write(tqdm_txt)
 
-            writer.add_scalar('train_loss', loss.item(), i) #FIXME: J: Changed img_loss to loss
-            writer.add_scalar('train_img_loss', img_loss.item(), i)
-            writer.add_scalar('train_psnr', psnr.item(), i)
+            writer.add_scalar('train_1_loss', loss.item(), i)
+            writer.add_scalar('train_img_2_loss', img_loss.item(), i)
+            writer.add_scalar('train_4_psnr', psnr.item(), i)
             if 'rgb0' in extras:
-                writer.add_scalar('train_loss0', loss0.item(), i)
-                writer.add_scalar('train_img_loss0', img_loss0.item(), i)
+                writer.add_scalar('train_5_loss0', loss0.item(), i)
+                writer.add_scalar('train_img_6_loss0', img_loss0.item(), i)
                 if args.add_depth_loss:
-                    writer.add_scalar('train_depth_loss0', depth_loss0.item(), i)
-                writer.add_scalar('train_psnr0', psnr0.item(), i)
+                    writer.add_scalar('train_depth_7_loss0', depth_loss0.item(), i)
+                writer.add_scalar('train_8_psnr0', psnr0.item(), i)
             if args.add_tv_loss:
-                writer.add_scalar('train_tv', tv_loss.item(), i)
+                writer.add_scalar('train_9_tv', tv_loss.item(), i)
             if args.add_depth_loss:
-                writer.add_scalar('train_depth_loss', depth_loss.item(), i) 
+                writer.add_scalar('train_3_depth_loss', depth_loss.item(), i) 
 
         del loss, img_loss, psnr, target_s
         if 'rgb0' in extras:
@@ -1029,7 +1026,7 @@ def train():
             # Log a rendered validation view to Tensorboard
             img_i=np.random.choice(i_val)
             target = images[img_i]
-            # FIXME J: 
+
             if depth_maps:
                 target_depth = depth_maps[img_i].squeeze()
             pose = poses[img_i, :3,:4]
@@ -1043,32 +1040,32 @@ def train():
             if args.add_depth_loss:
                 depth_loss = depth2mse(depth, target_depth)
                 loss += depth_loss
-            psnr = mse2psnr(img_loss)       # FIXME Ist das hier nur vom img_loss? Nicht vom gesamt loss?
+            psnr = mse2psnr(img_loss)
             # FIXME J: psnr = mse2psnr((img2mse(rgb, target) + depth2mse(depth, target_depth))) ?
 
-            writer.add_scalar('val_loss', loss.item(), i) #FIXME: J: Changed img_loss to loss
-            writer.add_scalar('val_img_loss', img_loss.item(), i)
+            writer.add_scalar('val_1_loss', loss.item(), i)
+            writer.add_scalar('val_2_img_loss', img_loss.item(), i)
             if args.add_depth_loss:
-                writer.add_scalar('val_depth_loss', depth_loss.item(), i) 
-            writer.add_scalar('val_psnr', psnr.item(), i)
-            writer.add_image('val_rgb_gt', to8b(target.cpu().numpy()), i, dataformats='HWC')
-            writer.add_image('val_rgb', to8b(rgb.cpu().numpy()), i, dataformats='HWC')
-            writer.add_image('val_disp', disp.cpu().numpy(), i, dataformats='HW')
-            writer.add_image('val_acc', acc.cpu().numpy(), i, dataformats='HW')
-            # FIXME J: 
+                writer.add_scalar('val_3_depth_loss', depth_loss.item(), i) 
+            writer.add_scalar('val_4_psnr', psnr.item(), i)
+            writer.add_image('val_1_rgb_gt', to8b(target.cpu().numpy()), i, dataformats='HWC')
+            writer.add_image('val_2_rgb', to8b(rgb.cpu().numpy()), i, dataformats='HWC')
+            writer.add_image('val_6_disp', disp.cpu().numpy(), i, dataformats='HW')
+            writer.add_image('val_5_acc', acc.cpu().numpy(), i, dataformats='HW')
+            
             if target_depth:
-                writer.add_image('val_depth_gt', target_depth.cpu().numpy(), i, dataformats='HW')
+                writer.add_image('val_3_depth_gt', target_depth.cpu().numpy(), i, dataformats='HW')
             if depth: 
-                writer.add_image('val_depth', depth.cpu().numpy(), i, dataformats='HW')
+                writer.add_image('val_4_depth', depth.cpu().numpy(), i, dataformats='HW')
 
             if 'rgb0' in extras:
-                writer.add_image('val_rgb_rough', to8b(extras['rgb0'].cpu().numpy()), i, dataformats='HWC')
+                writer.add_image('val_7_rgb_rough', to8b(extras['rgb0'].cpu().numpy()), i, dataformats='HWC')
             if 'disp0' in extras:
-                writer.add_image('val_disp_rough', extras['disp0'].cpu().numpy(), i, dataformats='HW')
+                writer.add_image('val_9_disp_rough', extras['disp0'].cpu().numpy(), i, dataformats='HW')
             if 'depth0' in extras:
-                writer.add_image('val_depth_rough', extras['depth0'].cpu().numpy(), i, dataformats='HW')
+                writer.add_image('val_8_depth_rough', extras['depth0'].cpu().numpy(), i, dataformats='HW')
             if 'z_std' in extras:
-                writer.add_image('val_acc_rough', extras['z_std'].cpu().numpy(), i, dataformats='HW')
+                writer.add_image('val_10_acc_rough', extras['z_std'].cpu().numpy(), i, dataformats='HW')
 
             print("finish summary")
             writer.flush()
