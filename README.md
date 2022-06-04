@@ -11,14 +11,11 @@ This project is an extension of [NeRF](http://www.matthewtancik.com/nerf) enabli
 
 ## Installation
 ```
-git clone https://github.com/albertpumarola/D-NeRF.git
+git clone https://github.com/philippwulff/D-NeRF.git
 cd D-NeRF
 conda create -n dnerf python=3.6
 conda activate dnerf
 pip install -r requirements.txt
-cd torchsearchsorted
-pip install .
-cd ..
 ```
 
 ## Download Pre-trained Weights

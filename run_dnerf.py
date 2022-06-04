@@ -487,12 +487,14 @@ def render_rays(ray_batch,
         pts = rays_o[...,None,:] + rays_d[...,None,:] * z_vals[...,:,None] # [N_rays, N_samples, 3]
 
 
-        if N_importance <= 0:       # If no additional fine samples
+        if N_importance <= 0:       # If no fine samples wanted
+            # Query network_fn for coarse samples
             raw, position_delta = network_query_fn(pts, viewdirs, frame_time, network_fn)
             rgb_map, disp_map, acc_map, weights, depth_map = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
 
         else:                       
-            if use_two_models_for_fine:     # 
+            if use_two_models_for_fine:     # If two separate networks are used
+                # Query network_fn for coarse samples
                 raw, position_delta_0 = network_query_fn(pts, viewdirs, frame_time, network_fn)
                 rgb_map_0, disp_map_0, acc_map_0, weights, depth_map_0 = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
 
@@ -501,11 +503,12 @@ def render_rays(ray_batch,
                     raw, _ = network_query_fn(pts, viewdirs, frame_time, network_fn)
                     _, _, _, weights, _ = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
 
+            # Draw fine samples in locations of high density
             z_vals_mid = .5 * (z_vals[...,1:] + z_vals[...,:-1])
             z_samples = sample_pdf(z_vals_mid, weights[...,1:-1], N_importance, det=(perturb==0.), pytest=pytest)
             z_samples = z_samples.detach()
             z_vals, _ = torch.sort(torch.cat([z_vals, z_samples], -1), -1)
-
+    
     pts = rays_o[...,None,:] + rays_d[...,None,:] * z_vals[...,:,None] # [N_rays, N_samples + N_importance, 3]
     run_fn = network_fn if network_fine is None else network_fine
     raw, position_delta = network_query_fn(pts, viewdirs, frame_time, run_fn)

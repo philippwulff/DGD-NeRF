@@ -116,7 +116,7 @@ def load_blender_data(basedir, half_res=False, testskip=1):
         #     skip = 2  # if you remove/change this 2, also change the /2 in the times vector
         # else:
         skip = testskip
-            
+           
         for t, frame in enumerate(meta['frames'][::skip]):
             fname = os.path.join(basedir, frame['file_path'] + '.png')
             imgs.append(imageio.imread(fname))
