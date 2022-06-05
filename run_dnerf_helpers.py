@@ -10,9 +10,15 @@ from torch import searchsorted
 
 # Misc
 img2mse = lambda x, y : torch.mean((x - y) ** 2)
-depth2mse = lambda x, y: torch.mean((x - y) ** 2)
 mse2psnr = lambda x : -10. * torch.log(x) / torch.log(torch.Tensor([10.]))
 to8b = lambda x : (255*np.clip(x,0,1)).astype(np.uint8)
+
+
+def depth2mse(depth, target_depth):
+    """Calculate MSE loss over valid (non-zero) depth pixels."""
+    # TODO possibly scale mse loss by valid_pixels/all_pixels
+    inds_nonzero = target_depth > 0.1
+    return torch.mean((depth[inds_nonzero] - target_depth[inds_nonzero]) ** 2)
 
 
 # Positional encoding (section 5.1)

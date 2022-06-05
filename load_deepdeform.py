@@ -233,8 +233,9 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1, render_pose_type="
 
 if __name__ == "__main__":
     print("EXTRACTING DATA")
-    extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq120", "office")
-    #extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq150", "bag")
+    # extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq120", "office")
+    extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq045", "human", end_frame_i=200)
+    # extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq150", "bag")
     exit(0)
 
     # print("DEBUGGING")

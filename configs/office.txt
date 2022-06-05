@@ -1,4 +1,4 @@
-expname = office_09_no_depth_loss_same_config_as_08
+expname = office_11_no_depth_loss_comparison
 basedir = ./logs
 datadir = ./data/office
 dataset_type = deepdeform           
@@ -26,3 +26,5 @@ do_half_precision = False
 
 i_img = 10000
 add_depth_loss = False
+
+no_reload = True

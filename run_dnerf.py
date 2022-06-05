@@ -17,10 +17,11 @@ except ImportError:
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")           
 if device.type == "cuda":
-    print(f"[Info] Using CUDA version {torch.version.cuda} on {torch.cuda.get_device_name(device.index).strip()} \
-            with global GPU index {os.environ['CUDA_VISIBLE_DEVICES']}")
+    print(f"[Info] Using CUDA version {torch.version.cuda} on {torch.cuda.get_device_name(device.index).strip()} with global GPU index {os.environ['CUDA_VISIBLE_DEVICES']}")
+
+torch.manual_seed(0)
 np.random.seed(0)
-DEBUG = False
+DEBUG = True
 
 
 def batchify(fn, chunk):
@@ -814,7 +815,7 @@ def train():
 
     # Move training data to GPU
     images = torch.Tensor(images).to(device)
-    if comp_depth:
+    if depth_maps is not None:
         depth_maps = torch.Tensor(depth_maps).to(device)
     poses = torch.Tensor(poses).to(device)
     times = torch.Tensor(times).to(device)
@@ -895,14 +896,7 @@ def train():
 
         ####################  Core optimization loop  ####################
         rgb, disp, acc, depth, extras = render(H, W, focal_x, focal_y, chunk=args.chunk, rays=batch_rays, frame_time=frame_time,
-                                                verbose=i < 10, retraw=True,
-                                                **render_kwargs_train)
-        
-        # Remove invalid depth pixels
-        if comp_depth:
-            inds_nonzero = target_depth_s.nonzero().squeeze()
-            target_depth_s = target_depth_s[inds_nonzero]
-            depth = depth[inds_nonzero]
+                                                verbose=i < 10, retraw=True, **render_kwargs_train)
         
         if args.add_tv_loss:
             frame_time_prev = times[img_i - 1] if img_i > 0 else None
@@ -941,21 +935,23 @@ def train():
                     tv_loss += ((extras['position_delta_0'] - extras_next['position_delta_0']).pow(2)).sum()
             tv_loss = tv_loss * args.tv_loss_weight
 
-        loss = img_loss + tv_loss 
+        depth_loss = 0
         if args.add_depth_loss:
+            # MSE loss over valid pixels
             depth_loss = depth2mse(depth, target_depth_s)
-            loss += args.depth_loss_weight * depth_loss 
+            
+        loss = img_loss + tv_loss + args.depth_loss_weight * depth_loss 
 
         psnr = mse2psnr(img_loss)
         #FIXME J: psnr = mse2psnr((img_loss+depth_loss))
 
         if 'rgb0' in extras:
             img_loss0 = img2mse(extras['rgb0'], target_s)
-            loss0 = img_loss0
+            depth_loss0 = 0
             if args.add_depth_loss:
-                depth_loss0 = depth2mse(extras['depth0'][inds_nonzero].squeeze(), target_depth_s) #FIXME J: Not tested yet: set use_two_models_fine=True
-                loss0 += args.depth_loss_weight * depth_loss0
-            loss = loss + loss0
+                depth_loss0 = depth2mse(extras['depth0'], target_depth_s) #FIXME J: Not tested yet: set use_two_models_fine=True
+            loss0 = img_loss0 + args.depth_loss_weight * depth_loss0
+            loss += loss0
             psnr0 = mse2psnr(img_loss0)
             #FIXME J: psnr0 = mse2psnr((img_loss0 + depth_loss0))
 
@@ -983,7 +979,8 @@ def train():
 
         ############################ LOGGING ################################
 
-        if i%args.i_weights == 0:
+        # Save network weights checkpoint
+        if i%args.i_weights == 0:       
             path = os.path.join(basedir, expname, '{:06d}.tar'.format(i))
             save_dict = {
                 'global_step': global_step,
@@ -998,7 +995,8 @@ def train():
             torch.save(save_dict, path)
             print('Saved checkpoints at', path)
 
-        if i % args.i_print == 0:
+        # Log training stats
+        if i % args.i_print == 0:       
             tqdm_txt = f"[TRAIN] Iter: {i} Loss_fine: {img_loss.item()} PSNR: {psnr.item()}"
             if args.add_tv_loss:
                 tqdm_txt += f" TV: {tv_loss.item()}"
@@ -1007,18 +1005,19 @@ def train():
             tqdm.write(tqdm_txt)
 
             writer.add_scalar('train_1_loss', loss.item(), i)
-            writer.add_scalar('train_img_2_loss', img_loss.item(), i)
-            writer.add_scalar('train_4_psnr', psnr.item(), i)
-            if 'rgb0' in extras:
-                writer.add_scalar('train_5_loss0', loss0.item(), i)
-                writer.add_scalar('train_img_6_loss0', img_loss0.item(), i)
-                if args.add_depth_loss:
-                    writer.add_scalar('train_depth_7_loss0', depth_loss0.item(), i)
-                writer.add_scalar('train_8_psnr0', psnr0.item(), i)
-            if args.add_tv_loss:
-                writer.add_scalar('train_9_tv', tv_loss.item(), i)
+            writer.add_scalar('train_2_img_loss', img_loss.item(), i)
+            writer.add_scalar('train_3_psnr', psnr.item(), i)
             if args.add_depth_loss:
-                writer.add_scalar('train_3_depth_loss', depth_loss.item(), i) 
+                writer.add_scalar('train_4_depth_loss', depth_loss.item(), i) 
+            if args.add_tv_loss:
+                writer.add_scalar('train_5_tv', tv_loss.item(), i)
+            if 'rgb0' in extras:
+                writer.add_scalar('train_6_loss0', loss0.item(), i)
+                writer.add_scalar('train_img_7_loss0', img_loss0.item(), i)
+                writer.add_scalar('train_8_psnr0', psnr0.item(), i)
+                if args.add_depth_loss:
+                    writer.add_scalar('train_depth_9_loss0', depth_loss0.item(), i)
+
 
         del loss, img_loss, psnr, target_s
         if 'rgb0' in extras:
@@ -1031,55 +1030,62 @@ def train():
                 del depth_loss0
         del rgb, disp, acc, extras
 
-        if i%args.i_img == 0:       # Log a rendered validation view to Tensorboard
+        # Validation
+        if i%args.i_img == 0:       
             torch.cuda.empty_cache()
             
             img_i=np.random.choice(i_val)
             target = images[img_i]
 
-            if not depth_maps is None:
-                target_depth = depth_maps[img_i].squeeze()
             pose = poses[img_i, :3,:4]
             frame_time = times[img_i]
             with torch.no_grad():
                 rgb, disp, acc, depth, extras = render(H, W, focal_x, focal_y, chunk=args.chunk, c2w=pose, frame_time=frame_time,
                                                     **render_kwargs_test)
 
+            if depth_maps is not None:
+                target_depth = depth_maps[img_i].squeeze()
+
             img_loss = img2mse(rgb, target)
-            loss = img_loss
+            depth_loss = 0
             if args.add_depth_loss:
                 depth_loss = depth2mse(depth, target_depth)
-                loss += depth_loss
-            psnr = mse2psnr(img_loss)
-            # FIXME J: psnr = mse2psnr((img2mse(rgb, target) + depth2mse(depth, target_depth))) ?
 
+            loss = img_loss + args.depth_loss_weight * depth_loss
+            psnr = mse2psnr(img_loss)
+
+            print("Iter:" + str(i) + "validation losses")
+
+            print("val_loss:" + str(loss.item()))
             writer.add_scalar('val_1_loss', loss.item(), i)
+            print("val_img_loss" + str(img_loss.item()))
             writer.add_scalar('val_2_img_loss', img_loss.item(), i)
+            writer.add_scalar('val_3_psnr', psnr.item(), i)
             if args.add_depth_loss:
-                writer.add_scalar('val_3_depth_loss', depth_loss.item(), i) 
-            writer.add_scalar('val_4_psnr', psnr.item(), i)
-            writer.add_image('val_1_rgb_gt', to8b(target.cpu().numpy()), i, dataformats='HWC')
-            writer.add_image('val_2_rgb', to8b(rgb.cpu().numpy()), i, dataformats='HWC')
-            writer.add_image('val_6_disp', disp.cpu().numpy(), i, dataformats='HW')
-            writer.add_image('val_5_acc', acc.cpu().numpy(), i, dataformats='HW')
-            
-            if args.add_depth_loss:
-                writer.add_image('val_3_depth_gt', target_depth.cpu().numpy(), i, dataformats='HW')
-                writer.add_image('val_4_depth', depth.cpu().numpy(), i, dataformats='HW')
+                print("val_depth_loss:" + str(depth_loss.item()))
+                writer.add_scalar('val_4_depth_loss', depth_loss.item(), i)     
+            writer.add_image('val_5_rgb_gt', to8b(target.cpu().numpy()), i, dataformats='HWC')
+            writer.add_image('val_6_rgb', to8b(rgb.cpu().numpy()), i, dataformats='HWC')
+            writer.add_image('val_7_disp', disp.cpu().numpy(), i, dataformats='HW')
+            writer.add_image('val_8_acc', acc.cpu().numpy(), i, dataformats='HW')
+            if depth_maps is not None:
+                writer.add_image('val_9_depth_gt', target_depth.cpu().numpy(), i, dataformats='HW')
+                writer.add_image('val_10_depth', depth.cpu().numpy(), i, dataformats='HW')
 
             if 'rgb0' in extras:
-                writer.add_image('val_7_rgb_rough', to8b(extras['rgb0'].cpu().numpy()), i, dataformats='HWC')
+                writer.add_image('val_11_rgb_rough', to8b(extras['rgb0'].cpu().numpy()), i, dataformats='HWC')
             if 'disp0' in extras:
-                writer.add_image('val_9_disp_rough', extras['disp0'].cpu().numpy(), i, dataformats='HW')
+                writer.add_image('val_12_disp_rough', extras['disp0'].cpu().numpy(), i, dataformats='HW')
             if 'depth0' in extras:
-                writer.add_image('val_8_depth_rough', extras['depth0'].cpu().numpy(), i, dataformats='HW')
+                writer.add_image('val_13_depth_rough', extras['depth0'].cpu().numpy(), i, dataformats='HW')
             if 'z_std' in extras:
-                writer.add_image('val_10_acc_rough', extras['z_std'].cpu().numpy(), i, dataformats='HW')
+                writer.add_image('val_14_acc_rough', extras['z_std'].cpu().numpy(), i, dataformats='HW')
 
             print("finish summary")
             writer.flush()
 
-        if i%args.i_video==0:       # Turn on testing mode
+        # Render novel view video
+        if i%args.i_video==0:       
             
             print("Rendering video...")
             with torch.no_grad():

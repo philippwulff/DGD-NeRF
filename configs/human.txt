@@ -1,15 +1,14 @@
-expname = trex
+expname = human_01_depth_loss
 basedir = ./logs
-datadir = ./data/trex
-dataset_type = blender
+datadir = ./data/human
+dataset_type = deepdeform           
 
 nerf_type = direct_temporal
 no_batching = True
 not_zero_canonical = False
-use_viewdirs = True
 
-use_viewdirs = True
-white_bkgd = True
+use_viewdirs = False
+white_bkgd = False
 lrate_decay = 500
 
 N_iter = 800000
@@ -25,3 +24,8 @@ precrop_frac = 0.5
 half_res = True
 do_half_precision = False
 
+i_img = 10000
+add_depth_loss = True
+depth_loss_weight = 0.005
+
+no_reload = True
