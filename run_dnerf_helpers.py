@@ -305,7 +305,7 @@ def get_rays(H, W, focal_x, focal_y, c2w):
         rays_o: Tensor
         rays_d: Tensor
     """
-    i, j = torch.meshgrid(torch.linspace(0, W-1, W), torch.linspace(0, H-1, H))  # pytorch's meshgrid has indexing='ij'
+    i, j = torch.meshgrid(torch.linspace(0, W-1, W), torch.linspace(0, H-1, H), indexing="ij")  # pytorch's meshgrid has indexing='ij'
     i = i.t()   # transposes 2D tensor
     j = j.t()
     # The ray directions in the camera coordinate system. 
