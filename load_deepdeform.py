@@ -48,7 +48,7 @@ def pose_spiral(theta, z_cam, z_cam_glob, H, W):
     x_c = z_cam * lim * np.cos(theta * np.pi/180)
     y_c = z_cam * lim * np.sin(theta * np.pi/180)
     # in world coordinates 
-    x_w, y_w, z_w, _ = trans_t(z_cam_glob) @ torch.Tensor([x_c, y_c, z_cam, 1])
+    x_w, y_w, z_w, _ = (trans_t(z_cam_glob) @ torch.Tensor([x_c, y_c, z_cam, 1])).cpu()
     alpha = - np.arctan(y_w/z_w) * 180/np.pi     # is rotation about X_global
     beta = np.arctan(x_w/z_w) * 180/np.pi      # rotation about Y_global
     radius = np.sqrt(x_w**2 + y_w**2 + z_w**2)
@@ -209,7 +209,7 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1, render_pose_type="
             render_poses = torch.stack([pose_spherical2(0, angle, 6.0) for angle in np.linspace(-20,20,16+1)], 0)       # changed from (-180,180,40+1)
         elif render_pose_type == "spiral": 
             render_poses = torch.stack([pose_spiral(angle, z_cam_dist, 6.0, H, W) for angle, z_cam_dist in 
-                                        zip(np.linspace(0, 2*360, 30), np.linspace(0, -3, 30))], 0)
+                                        zip(np.linspace(0, 2*360, 120), np.linspace(0, -3, 120))], 0)
 
     render_times = torch.linspace(0., 1., render_poses.shape[0])
     

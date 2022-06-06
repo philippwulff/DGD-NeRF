@@ -287,7 +287,7 @@ def create_nerf(args):
     optimizer = torch.optim.Adam(params=grad_vars, lr=args.lrate, betas=(0.9, 0.999))
 
     if args.do_half_precision:          # TODO P: amp ist nicht installier, oder? Wird das hier je ausgeführt?
-        print("Run model at half precision")
+        print("[Config] Run model at half precision")
         if model_fine is not None:
             [model, model_fine], optimizers = amp.initialize([model, model_fine], optimizer, opt_level='O1')
         else:
@@ -305,10 +305,10 @@ def create_nerf(args):
     else:
         ckpts = [os.path.join(basedir, expname, f) for f in sorted(os.listdir(os.path.join(basedir, expname))) if 'tar' in f]
 
-    print('Found ckpts', ckpts)
+    print("[Info] Found ckpts:\n\t\t" + '\n\t\t'.join(ckpts))
     if len(ckpts) > 0 and not args.no_reload:
         ckpt_path = ckpts[-1]
-        print('Reloading from', ckpt_path)
+        print('[Info] Reloading from', ckpt_path)
         ckpt = torch.load(ckpt_path, map_location=device)       # will map storages to the given device
 
         start = ckpt['global_step']
@@ -620,6 +620,8 @@ def config_parser():
                         help='render the test set instead of render_poses path')
     parser.add_argument("--render_factor", type=int, default=0, 
                         help='downsampling factor to speed up rendering, set 4 or 8 for fast preview')
+    parser.add_argument("--render_pose_type", type=str, default="spherical",
+                        help='render poses spherical or spiral')
 
     # training options
     parser.add_argument("--precrop_iters", type=int, default=0,
@@ -707,8 +709,8 @@ def train():
         # images = [rgb2hsv(img) for img in images]
 
     elif args.dataset_type == 'deepdeform':
-        images, depth_maps, poses, times, render_poses, render_times, hwff, i_split = load_deepdeform_data(args.datadir, args.half_res, args.testskip)
-        print('__Loaded deepdeform__:', 'images.shape:', images.shape, 'render_poses.shape:', render_poses.shape, 'hwff:', hwff, 'args.datadir:', args.datadir)
+        images, depth_maps, poses, times, render_poses, render_times, hwff, i_split = load_deepdeform_data(args.datadir, args.half_res, args.testskip, args.render_pose_type)
+        print(f"[Info] Loaded DeepDeform:\n\t\timages.shape: {images.shape}\n\t\trender_poses.shape: {render_poses.shape}\n\t\thwff: {hwff}\n\t\targs.datadir: {args.datadir}")
         i_train, i_val, i_test = i_split
 
         near = 0.1
@@ -718,7 +720,7 @@ def train():
         # No RGB-to-RGBA conversion needed
 
     else:
-        print('Unknown dataset type: ', args.dataset_type, '. Exiting')
+        print('[WARNING] Unknown dataset type: ', args.dataset_type, '. Exiting')
         return
 
     min_time, max_time = times[i_train[0]], times[i_train[-1]]
@@ -731,7 +733,7 @@ def train():
 
     comp_depth = True if args.add_depth_loss else False
     if depth_maps is None and comp_depth:
-        print("No depth maps loaded. Cannot apply depth loss. Exiting.")
+        print("[WARNING] No depth maps loaded. Cannot apply depth loss. Exiting.")
         return
 
     # Cast intrinsics to right types
@@ -774,24 +776,25 @@ def train():
 
     # Short circuit if only rendering out from trained model
     if args.render_only:
-        print('RENDER ONLY')
+        print('[Info] RENDER ONLY')
         with torch.no_grad():
             if args.render_test:
                 # render_test switches to test poses
                 images = images[i_test] #TODO J: Do we want to also generate a depth video? Then render_path also needs to return depth
+                save_also_gt = True
             else:
                 # Default is smoother render_poses path
                 images = None
+                save_also_gt = False
 
             testsavedir = os.path.join(basedir, expname, 'renderonly_{}_{:06d}'.format('test' if args.render_test else 'path', start))
             os.makedirs(testsavedir, exist_ok=True)
-            print('test poses shape', render_poses.shape)
+            print('[Info] Test poses shape:', render_poses.shape)
 
             rgbs, _ = render_path(render_poses, render_times, hwff, args.chunk, render_kwargs_test, gt_imgs=images,
-                                  savedir=testsavedir, render_factor=args.render_factor, save_also_gt=True)
-            print('Done rendering', testsavedir)
+                                  savedir=testsavedir, render_factor=args.render_factor, save_also_gt=save_also_gt)
+            print('[Info] Saving rendering to:', testsavedir)
             imageio.mimwrite(os.path.join(testsavedir, 'video.mp4'), to8b(rgbs), fps=30, quality=8)
-
             return
 
     # Prepare raybatch tensor if batching random rays
@@ -824,7 +827,7 @@ def train():
 
 
     N_iters = args.N_iter + 1
-    print('Begin')
+    print('[Info] Begin training')
 
     # Summary writers
     writer = SummaryWriter(os.path.join(basedir, 'summaries', expname))
@@ -993,7 +996,7 @@ def train():
             if args.do_half_precision:
                 save_dict['amp'] = amp.state_dict()
             torch.save(save_dict, path)
-            print('Saved checkpoints at', path)
+            print('[Info] Saved checkpoints at:', path)
 
         # Log training stats
         if i % args.i_print == 0:       
@@ -1001,7 +1004,7 @@ def train():
             if args.add_tv_loss:
                 tqdm_txt += f" TV: {tv_loss.item()}"
             if args.add_depth_loss:
-                tqdm_txt += f" Depth: {depth_loss.item()}"
+                tqdm_txt += f" Depth_loss: {depth_loss.item()}"
             tqdm.write(tqdm_txt)
 
             writer.add_scalar('train_1_loss', loss.item(), i)
@@ -1054,15 +1057,15 @@ def train():
             loss = img_loss + args.depth_loss_weight * depth_loss
             psnr = mse2psnr(img_loss)
 
-            print("Iter:" + str(i) + "validation losses")
+            tqdm_txt = f"[VAL] Iter: {i} Val_loss: {loss.item()} Val_img_loss: {img_loss.item()}"
+            if args.add_depth_loss:
+                tqdm_txt += f" Val_depth_loss: {depth_loss.item()}"
+            tqdm.write(tqdm_txt)
 
-            print("val_loss:" + str(loss.item()))
             writer.add_scalar('val_1_loss', loss.item(), i)
-            print("val_img_loss" + str(img_loss.item()))
             writer.add_scalar('val_2_img_loss', img_loss.item(), i)
             writer.add_scalar('val_3_psnr', psnr.item(), i)
             if args.add_depth_loss:
-                print("val_depth_loss:" + str(depth_loss.item()))
                 writer.add_scalar('val_4_depth_loss', depth_loss.item(), i)     
             writer.add_image('val_5_rgb_gt', to8b(target.cpu().numpy()), i, dataformats='HWC')
             writer.add_image('val_6_rgb', to8b(rgb.cpu().numpy()), i, dataformats='HWC')
@@ -1081,17 +1084,16 @@ def train():
             if 'z_std' in extras:
                 writer.add_image('val_14_acc_rough', extras['z_std'].cpu().numpy(), i, dataformats='HW')
 
-            print("finish summary")
             writer.flush()
 
         # Render novel view video
         if i%args.i_video==0:       
             
-            print("Rendering video...")
+            print("[Info] Rendering video...")
             with torch.no_grad():
                 savedir = os.path.join(basedir, expname, 'frames_{}_spiral_{:06d}_time/'.format(expname, i))
                 rgbs, disps = render_path(render_poses, render_times, hwff, args.chunk, render_kwargs_test, savedir=savedir)
-            print('Done, saving', rgbs.shape, disps.shape)
+            print('[Info] Done, saving', rgbs.shape, disps.shape)
             moviebase = os.path.join(basedir, expname, '{}_spiral_{:06d}_'.format(expname, i))
             imageio.mimwrite(moviebase + 'rgb.mp4', to8b(rgbs), fps=30, quality=8)
             imageio.mimwrite(moviebase + 'disp.mp4', to8b(disps / np.max(disps)), fps=30, quality=8)
@@ -1105,11 +1107,11 @@ def train():
 
         if i%args.i_testset==0:
             testsavedir = os.path.join(basedir, expname, 'testset_{:06d}'.format(i))
-            print('Testing poses shape...', poses[i_test].shape)
+            print('[Info] Testing poses shape...', poses[i_test].shape)
             with torch.no_grad():
                 render_path(torch.Tensor(poses[i_test]).to(device), torch.Tensor(times[i_test]).to(device),
                             hwff, args.chunk, render_kwargs_test, gt_imgs=images[i_test], savedir=testsavedir)
-            print('Saved test set')
+            print('[Info] Saved test set')
 
         global_step += 1
 

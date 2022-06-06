@@ -159,7 +159,7 @@ class DirectTemporalNeRF(nn.Module):
 class NeRF:
     @staticmethod
     def get_by_name(type,  *args, **kwargs):
-        print ("NeRF type selected: %s" % type)
+        print ("[Config] NeRF type selected: %s" % type)
 
         if type == "original":
             model = NeRFOriginal(*args, **kwargs)
