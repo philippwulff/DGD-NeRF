@@ -206,7 +206,7 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1, render_pose_type="
     else:
 
         if render_pose_type == "spherical":
-            render_poses = torch.stack([pose_spherical2(0, angle, 6.0) for angle in np.linspace(-20,20,16+1)], 0)       # changed from (-180,180,40+1)
+            render_poses = torch.stack([pose_spherical2(0, angle, 6.0) for angle in np.linspace(-20,20,120+1)], 0)       # changed from (-180,180,40+1)
         elif render_pose_type == "spiral": 
             render_poses = torch.stack([pose_spiral(angle, z_cam_dist, 6.0, H, W) for angle, z_cam_dist in 
                                         zip(np.linspace(0, 2*360, 120), np.linspace(0, -3, 120))], 0)

@@ -1,4 +1,4 @@
-expname = human_02_no_depth_loss
+expname = human_01_depth_loss
 basedir = ./logs
 datadir = ./data/human
 dataset_type = deepdeform           

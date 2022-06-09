@@ -15,6 +15,8 @@ try:
 except ImportError:
     pass
 
+import torch.nn as nn
+
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")           
 if device.type == "cuda":
     print(f"[Info] Using CUDA version {torch.version.cuda} on {torch.cuda.get_device_name(device.index).strip()} with global GPU index {os.environ['CUDA_VISIBLE_DEVICES']}")
@@ -794,7 +796,7 @@ def train():
             rgbs, _ = render_path(render_poses, render_times, hwff, args.chunk, render_kwargs_test, gt_imgs=images,
                                   savedir=testsavedir, render_factor=args.render_factor, save_also_gt=save_also_gt)
             print('[Info] Saving rendering to:', testsavedir)
-            imageio.mimwrite(os.path.join(testsavedir, 'video.mp4'), to8b(rgbs), fps=30, quality=8)
+            imageio.mimwrite(os.path.join(testsavedir, 'video_{}.mp4'.format('spherical' if args.render_pose_type=="spherical" else 'spiral')), to8b(rgbs), fps=30, quality=8)
             return
 
     # Prepare raybatch tensor if batching random rays
