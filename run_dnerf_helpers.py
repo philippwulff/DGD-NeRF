@@ -20,6 +20,31 @@ def depth2mse(depth, target_depth):
     inds_nonzero = target_depth > 0.1
     return torch.mean((depth[inds_nonzero] - target_depth[inds_nonzero]) ** 2)
 
+def depth2gnll(depth, target_depth, depth_std, target_depth_std=0.001): #TODO J: find out target_depth_std and in which unit depth is given
+    """
+    Calculate Gaussian Negative Log Likelihood Loss over valid depth rays.
+    Calculate only if 
+    predicted depth - ground truth depth > sensor depth standard deviation
+    predicted depth standard deviation > sensor depth standard deviation
+    """
+    inds_nonzero = target_depth > 0.1
+    inds_depth_prediction = (depth - target_depth).abs() > target_depth_std
+    inds_depth_std_prediction = depth_std > target_depth_std
+    inds_valid = torch.logical_or(inds_nonzero, inds_depth_prediction)
+    inds_valid = torch.logical_or(inds_valid, inds_depth_std_prediction)
+
+    depth = depth[inds_valid] 
+    target_depth = target_depth[inds_valid] 
+    depth_std = depth_std[inds_valid]
+    depth_var = depth_std**2
+
+    f = nn.GaussianNLLLoss(eps=0.001)
+
+    return f(depth, target_depth, depth_var)
+
+
+
+
 
 # Positional encoding (section 5.1)
 class Embedder:

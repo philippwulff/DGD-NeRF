@@ -1,4 +1,4 @@
-expname = human_01_depth_loss
+expname = human_03_test_gnll_loss
 basedir = ./logs
 datadir = ./data/human
 dataset_type = deepdeform           
@@ -28,5 +28,5 @@ i_img = 10000
 add_depth_loss = True
 depth_loss_weight = 0.005
 
-no_reload = False
+no_reload = True
 render_pose_type = spiral

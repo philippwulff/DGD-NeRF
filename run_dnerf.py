@@ -113,7 +113,7 @@ def batchify_rays(rays_flat, chunk=1024*32, **kwargs):
 
 def render(H, W, focal_x, focal_y, chunk=1024*32, rays=None, c2w=None, ndc=True,
                   near=0., far=1., frame_time=None,
-                  use_viewdirs=False, c2w_staticcam=None,
+                  use_viewdirs=False, c2w_staticcam=None, rays_depth=None,
                   **kwargs):
     """Calls methods to render the given rays.
 
@@ -145,9 +145,11 @@ def render(H, W, focal_x, focal_y, chunk=1024*32, rays=None, c2w=None, ndc=True,
     if c2w is not None:
         # special case to render full image
         rays_o, rays_d = get_rays(H, W, focal_x, focal_y, c2w)
-    else:
+    elif rays.shape[0] == 2:
         # use provided ray batch
         rays_o, rays_d = rays
+    else:
+        rays_o, rays_d, rays_depth = rays
 
     if use_viewdirs:                            # this is set to True when using full 5D input to the canonical model
         # provide ray directions as input
@@ -172,6 +174,9 @@ def render(H, W, focal_x, focal_y, chunk=1024*32, rays=None, c2w=None, ndc=True,
     rays = torch.cat([rays_o, rays_d, near, far, frame_time], -1)
     if use_viewdirs:
         rays = torch.cat([rays, viewdirs], -1)
+    if rays_depth is not None:
+        rays_depth = torch.reshape(rays_depth, [-1,3]).float()
+        rays = torch.cat([rays, rays_depth], -1)
 
     # Render and reshape
     all_ret = batchify_rays(rays, chunk, **kwargs)      
@@ -389,6 +394,8 @@ def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, white_bkgd=False, pytest=F
     rgb_map = torch.sum(weights[...,None] * rgb, -2)  # [N_rays, 3]
 
     depth_map = torch.sum(weights * z_vals, -1)
+    depth_std_map = ((((z_vals - depth_map.unsqueeze(-1)).pow(2) * weights).sum(-1)) + 1e-6).sqrt() #FIXME J sqrt bekommt nan in [0] in Iteration 500 im backward()
+    
     disp_map = 1./torch.max(1e-10 * torch.ones_like(depth_map), depth_map / torch.sum(weights, -1))
     acc_map = torch.sum(weights, -1)
 
@@ -396,7 +403,7 @@ def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, white_bkgd=False, pytest=F
         rgb_map = rgb_map + (1.-acc_map[...,None])
         # rgb_map = rgb_map + torch.cat([acc_map[..., None] * 0, acc_map[..., None] * 0, (1. - acc_map[..., None])], -1)
 
-    return rgb_map, disp_map, acc_map, weights, depth_map
+    return rgb_map, disp_map, acc_map, weights, depth_map, depth_std_map
 
 
 def render_rays(ray_batch,
@@ -460,9 +467,10 @@ def render_rays(ray_batch,
     bounds = torch.reshape(ray_batch[...,6:9], [-1,1,3])
     near, far, frame_time = bounds[...,0], bounds[...,1], bounds[...,2] # [-1,1]
     z_samples = None
-    rgb_map_0, disp_map_0, acc_map_0, depth_map_0, position_delta_0 = None, None, None, None, None
+    rgb_map_0, disp_map_0, acc_map_0, depth_map_0, depth_std_map_0, position_delta_0 = None, None, None, None, None, None
 
-    if z_vals is None:      # create coarse integration locations along the rays 
+    if z_vals is None:      
+        # create coarse integration locations along the rays 
         t_vals = torch.linspace(0., 1., steps=N_samples)
         if not lindisp:
             z_vals = near * (1.-t_vals) + far * (t_vals)
@@ -489,22 +497,21 @@ def render_rays(ray_batch,
 
         pts = rays_o[...,None,:] + rays_d[...,None,:] * z_vals[...,:,None] # [N_rays, N_samples, 3]
 
-
-        if N_importance <= 0:       # If no fine samples wanted
-            # Query network_fn for coarse samples
+        if N_importance <= 0:       
+            # If no fine samples wanted, query network_fn for coarse samples
             raw, position_delta = network_query_fn(pts, viewdirs, frame_time, network_fn)
-            rgb_map, disp_map, acc_map, weights, depth_map = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
+            rgb_map, disp_map, acc_map, weights, depth_map, depth_std_map = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
 
         else:                       
-            if use_two_models_for_fine:     # If two separate networks are used
-                # Query network_fn for coarse samples
+            if use_two_models_for_fine:     
+                # If a separate fine network is used, query network_fn for coarse samples
                 raw, position_delta_0 = network_query_fn(pts, viewdirs, frame_time, network_fn)
-                rgb_map_0, disp_map_0, acc_map_0, weights, depth_map_0 = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
+                rgb_map_0, disp_map_0, acc_map_0, weights, depth_map_0, depth_std_map_0 = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
 
             else:
                 with torch.no_grad():
                     raw, _ = network_query_fn(pts, viewdirs, frame_time, network_fn)
-                    _, _, _, weights, _ = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
+                    _, _, _, weights, _, _ = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
 
             # Draw fine samples in locations of high density
             z_vals_mid = .5 * (z_vals[...,1:] + z_vals[...,:-1])
@@ -515,13 +522,14 @@ def render_rays(ray_batch,
     pts = rays_o[...,None,:] + rays_d[...,None,:] * z_vals[...,:,None] # [N_rays, N_samples + N_importance, 3]
     run_fn = network_fn if network_fine is None else network_fine
     raw, position_delta = network_query_fn(pts, viewdirs, frame_time, run_fn)
-    rgb_map, disp_map, acc_map, weights, depth_map = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
+    rgb_map, disp_map, acc_map, weights, depth_map, depth_std_map = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
 
     ret = {
         'rgb_map': rgb_map,
         'disp_map': disp_map,
         'acc_map': acc_map,
         'depth_map': depth_map,
+        'depth_std_map': depth_std_map,
         'z_vals': z_vals,
         'position_delta': position_delta
     }
@@ -536,6 +544,8 @@ def render_rays(ray_batch,
             ret['acc0'] = acc_map_0
         if depth_map_0 is not None:
             ret['depth0'] = depth_map_0
+        if depth_std_map_0 is not None:
+            ret['depthstd0'] = depth_std_map_0
         if position_delta_0 is not None:
             ret['position_delta_0'] = position_delta_0
         if z_samples is not None:
@@ -943,7 +953,8 @@ def train():
         depth_loss = 0
         if args.add_depth_loss:
             # MSE loss over valid pixels
-            depth_loss = depth2mse(depth, target_depth_s)
+            #depth_loss = depth2mse(depth, target_depth_s)
+            depth_loss = depth2gnll(depth, target_depth_s, extras['depth_std_map']) #target_depth_std_s) #FIXME J: Change to correct variable names for variances
             
         loss = img_loss + tv_loss + args.depth_loss_weight * depth_loss 
 
