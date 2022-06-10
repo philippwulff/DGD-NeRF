@@ -3,6 +3,7 @@ import imageio
 import time
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm, trange
+import math
 
 
 from run_dnerf_helpers import *
@@ -512,7 +513,8 @@ def render_rays(ray_batch,
                 return a * x.pow(2) + b * x + c
 
             z_vals = comp_quadratic_samples(near, far, N_samples)
-            lower_bound = z_vals[-1] - z_vals[-2]
+            # compute a lower bound for the sampling standard deviation as the maximal distance between samples
+            lower_bound = z_vals[0, -1] - z_vals[0, -2]             # FIXME in Barbaras code is das hier ein tensor mit shape (64)
             
         else:
             t_vals = torch.linspace(0., 1., steps=N_samples)
@@ -530,16 +532,16 @@ def render_rays(ray_batch,
         #     # If no fine samples wanted, query network_fn in N_samples coarse locations
         #     raw, position_delta = network_query_fn(pts, viewdirs, frame_time, network_fn)
         #     rgb_map, disp_map, acc_map, weights, depth_map, depth_std_map = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
-
+        
+        # Create fine intagration locations in regions of high density along the rays
         if N_importance > 0:            
-            # Create fine intagration locations in regions of high density along the rays
             if use_two_models_for_fine:     
                 # ... forward pass for coarse samples with a separate coarse network
                 raw, position_delta_0 = network_query_fn(pts, viewdirs, frame_time, network_fn)
                 rgb_map_0, disp_map_0, acc_map_0, weights, depth_map_0, depth_std_map_0 = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
             else:
-                with torch.no_grad():
                 # ... forward pass for coarse samples with the same network
+                with torch.no_grad():
                     raw, _ = network_query_fn(pts, viewdirs, frame_time, network_fn)
                     _, _, _, weights, _, _ = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
 
@@ -582,7 +584,7 @@ def render_rays(ray_batch,
                         weights = alpha * torch.cumprod(torch.cat([torch.ones((alpha.shape[0], 1), device=device), 1.-alpha + 1e-10], -1), -1)[:, :-1]
                         return weights
 
-                    z_vals_2 = torch.empty(N_rays, N_importance)
+                    z_vals_2 = torch.zeros((N_rays, N_importance))
                     # sample around the predicted depth from the first half of samples, if the input depth is invalid
                     z_vals_2[invalid_depth] = compute_samples_around_depth(raw.detach()[invalid_depth], z_vals[invalid_depth], rays_d[invalid_depth], 
                                                                            N_importance, perturb, lower_bound, near[0, 0], far[0, 0])
@@ -596,7 +598,7 @@ def render_rays(ray_batch,
                                                             perturb, lower_bound, near[0, 0], far[0, 0])
                 # Combine coarse and fine integration locations
                 pts_2 = rays_o[...,None,:] + rays_d[...,None,:] * z_vals_2[...,:,None]
-                raw_2 = network_query_fn(pts_2, viewdirs, frame_time, network_fn)
+                raw_2, _ = network_query_fn(pts_2, viewdirs, frame_time, network_fn)
                 z_vals = torch.cat((z_vals, z_vals_2), -1)
                 raw = torch.cat((raw, raw_2), 1)
                 z_vals, indices = z_vals.sort()
