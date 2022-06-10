@@ -94,8 +94,9 @@ def run_network(inputs, viewdirs, frame_time, fn, embed_fn, embeddirs_fn, embedt
 def batchify_rays(rays_flat, chunk=1024*32, **kwargs):
     """Render rays in smaller minibatches to avoid OOM.
     Args:
-        rays_flat: [batch_size, 3]. all ray directions from a camera.
+        rays_flat: [batch_size, 9] or [batch_size, 12] or [batch_size, 15]. all ray directions from a camera.
         chunk: int. The max number of rays to process in parallel. Defaults to 1024*32.
+        use_viewdirs (bool): TODO
     Returns:
         all_ret: dict.  
     """
@@ -112,8 +113,7 @@ def batchify_rays(rays_flat, chunk=1024*32, **kwargs):
 
 
 def render(H, W, focal_x, focal_y, chunk=1024*32, rays=None, c2w=None, ndc=True,
-                  near=0., far=1., frame_time=None,
-                  use_viewdirs=False, c2w_staticcam=None, rays_depth=None,
+                  near=0., far=1., frame_time=None, c2w_staticcam=None,
                   **kwargs):
     """Calls methods to render the given rays.
 
@@ -125,7 +125,7 @@ def render(H, W, focal_x, focal_y, chunk=1024*32, rays=None, c2w=None, ndc=True,
       chunk: int. Maximum number of rays to process simultaneously. Used to
         control maximum memory usage. Does not affect final results.
       rays: array of shape [2, batch_size, 3]. Ray origin and direction for
-        each example in batch.
+        each example in batch. TODO
       c2w: array of shape [3, 4]. Camera-to-world transformation matrix. 
         Horizontal stack of the rotation matrix an the translation vector.
       ndc: bool. If True, represent ray origin, direction in normalized device coordinates (NDC).
@@ -151,7 +151,7 @@ def render(H, W, focal_x, focal_y, chunk=1024*32, rays=None, c2w=None, ndc=True,
     else:
         rays_o, rays_d, rays_depth = rays
 
-    if use_viewdirs:                            # this is set to True when using full 5D input to the canonical model
+    if kwargs["use_viewdirs"]:                            # this is set to True when using full 5D input to the canonical model
         # provide ray directions as input
         viewdirs = rays_d
         if c2w_staticcam is not None:           # the code which sets c2w_staticcam to True is commented out in the official D-NeRF code
@@ -169,14 +169,14 @@ def render(H, W, focal_x, focal_y, chunk=1024*32, rays=None, c2w=None, ndc=True,
     rays_o = torch.reshape(rays_o, [-1,3]).float()
     rays_d = torch.reshape(rays_d, [-1,3]).float()
 
-    near, far = near * torch.ones_like(rays_d[...,:1]), far * torch.ones_like(rays_d[...,:1])   # [batch_size * H * W] # TODO P: richtig?
-    frame_time = frame_time * torch.ones_like(rays_d[...,:1])
-    rays = torch.cat([rays_o, rays_d, near, far, frame_time], -1)
-    if use_viewdirs:
-        rays = torch.cat([rays, viewdirs], -1)
+    near, far = near * torch.ones_like(rays_d[...,:1]), far * torch.ones_like(rays_d[...,:1])   # [batch_size * 1] each
+    frame_time = frame_time * torch.ones_like(rays_d[...,:1])                                   # [batch_size * 1]
+    rays = torch.cat([rays_o, rays_d, near, far, frame_time], -1)                               # [batch_size * 9]
+    if kwargs["use_viewdirs"]:
+        rays = torch.cat([rays, viewdirs], -1)          # [batch_size * 12]
     if rays_depth is not None:
         rays_depth = torch.reshape(rays_depth, [-1,3]).float()
-        rays = torch.cat([rays, rays_depth], -1)
+        rays = torch.cat([rays, rays_depth], -1)        # [batch_size * 12] or [batch_size * 15]
 
     # Render and reshape
     all_ret = batchify_rays(rays, chunk, **kwargs)      
@@ -406,6 +406,24 @@ def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, white_bkgd=False, pytest=F
     return rgb_map, disp_map, acc_map, weights, depth_map, depth_std_map
 
 
+def stratified_samples(z_vals, pytest=False):
+    # get intervals between samples
+    mids = .5 * (z_vals[...,1:] + z_vals[...,:-1])
+    upper = torch.cat([mids, z_vals[...,-1:]], -1)
+    lower = torch.cat([z_vals[...,:1], mids], -1)
+    # stratified samples in those intervals
+    t_rand = torch.rand(z_vals.shape)
+
+    # Pytest, overwrite u with numpy's fixed random numbers
+    if pytest:
+        np.random.seed(0)
+        t_rand = np.random.rand(*list(z_vals.shape))
+        t_rand = torch.Tensor(t_rand)
+
+    z_vals = lower + (upper - lower) * t_rand
+    return z_vals    
+
+
 def render_rays(ray_batch,
                 network_fn,
                 network_query_fn,
@@ -420,7 +438,9 @@ def render_rays(ray_batch,
                 verbose=False,
                 pytest=False,
                 z_vals=None,
-                use_two_models_for_fine=False):
+                use_two_models_for_fine=False,
+                use_viewdirs=False,
+                use_depth_guided_sampling=False):
     """Performs volumetric rendering, i.e. computes a RGB images and depth map by querying the model in spatial
     locations along the given rays and computing the volume rendering integral.
 
@@ -440,7 +460,7 @@ def render_rays(ray_batch,
         These samples are only passed to network_fine.
       network_fine: "fine" network with same spec as network_fn.
       white_bkgd: bool. If True, assume a white background.
-      raw_noise_std: ...
+      raw_noise_std: ... TODO???
       verbose: bool. If True, print more debugging info.
       z_vals: [num_rays, num_samples along ray]. Integration time.
     Returns:
@@ -462,68 +482,139 @@ def render_rays(ray_batch,
     """
 
     N_rays = ray_batch.shape[0]
-    rays_o, rays_d = ray_batch[:,0:3], ray_batch[:,3:6] # [N_rays, 3] each
-    viewdirs = ray_batch[:,-3:] if ray_batch.shape[-1] > 9 else None
+    rays_o, rays_d = ray_batch[:,0:3], ray_batch[:,3:6]                     # [N_rays, 3] each
     bounds = torch.reshape(ray_batch[...,6:9], [-1,1,3])
-    near, far, frame_time = bounds[...,0], bounds[...,1], bounds[...,2] # [-1,1]
+    near, far, frame_time = bounds[...,0], bounds[...,1], bounds[...,2]     # [N_rays,1] each
+    # viewdirs = ray_batch[:,-3:] if ray_batch.shape[-1] > 9 else None
     z_samples = None
     rgb_map_0, disp_map_0, acc_map_0, depth_map_0, depth_std_map_0, position_delta_0 = None, None, None, None, None, None
+    viewdirs = None
+    depth_range = None
+
+    if use_viewdirs:
+        viewdirs = ray_batch[:, 9:12] 
+        if ray_batch.shape[-1] > 12:
+            depth_range = ray_batch[:, 12:15]
+    else:
+        if ray_batch.shape[-1] > 9:
+            depth_range = ray_batch[:, 9:12]
 
     if z_vals is None:      
-        # create coarse integration locations along the rays 
-        t_vals = torch.linspace(0., 1., steps=N_samples)
-        if not lindisp:
-            z_vals = near * (1.-t_vals) + far * (t_vals)
+        # create coarse integration locations along the rays
+        if use_depth_guided_sampling:
+            def comp_quadratic_samples(near, far, num_samples):
+                """normal parabola between 0.1 and 1, shifted and scaled to have y range between near and far"""
+                start = 0.1
+                x = torch.linspace(0, 1, num_samples)
+                c = near
+                a = (far - near)/(1. + 2. * start)
+                b = 2. * start * a
+                return a * x.pow(2) + b * x + c
+
+            z_vals = comp_quadratic_samples(near, far, N_samples)
+            lower_bound = z_vals[-1] - z_vals[-2]
+            
         else:
-            z_vals = 1./(1./near * (1.-t_vals) + 1./far * (t_vals))
+            t_vals = torch.linspace(0., 1., steps=N_samples)
+            if not lindisp:
+                z_vals = near * (1.-t_vals) + far * (t_vals)
+            else:
+                z_vals = 1./(1./near * (1.-t_vals) + 1./far * (t_vals))
+            z_vals = z_vals.expand([N_rays, N_samples])
 
-        z_vals = z_vals.expand([N_rays, N_samples])
+        # Add stratified perturbations 
+        z_vals = stratified_samples(z_vals, pytest=pytest) if perturb > 0. else z_vals     
+        pts = rays_o[...,None,:] + rays_d[...,None,:] * z_vals[...,:,None]      # [N_rays, N_samples, 3]
 
-        if perturb > 0.:
-            # get intervals between samples
-            mids = .5 * (z_vals[...,1:] + z_vals[...,:-1])
-            upper = torch.cat([mids, z_vals[...,-1:]], -1)
-            lower = torch.cat([z_vals[...,:1], mids], -1)
-            # stratified samples in those intervals
-            t_rand = torch.rand(z_vals.shape)
+        # if N_importance <= 0:       
+        #     # If no fine samples wanted, query network_fn in N_samples coarse locations
+        #     raw, position_delta = network_query_fn(pts, viewdirs, frame_time, network_fn)
+        #     rgb_map, disp_map, acc_map, weights, depth_map, depth_std_map = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
 
-            # Pytest, overwrite u with numpy's fixed random numbers
-            if pytest:
-                np.random.seed(0)
-                t_rand = np.random.rand(*list(z_vals.shape))
-                t_rand = torch.Tensor(t_rand)
-
-            z_vals = lower + (upper - lower) * t_rand
-
-        pts = rays_o[...,None,:] + rays_d[...,None,:] * z_vals[...,:,None] # [N_rays, N_samples, 3]
-
-        if N_importance <= 0:       
-            # If no fine samples wanted, query network_fn for coarse samples
-            raw, position_delta = network_query_fn(pts, viewdirs, frame_time, network_fn)
-            rgb_map, disp_map, acc_map, weights, depth_map, depth_std_map = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
-
-        else:                       
+        if N_importance > 0:            
+            # Create fine intagration locations in regions of high density along the rays
             if use_two_models_for_fine:     
-                # If a separate fine network is used, query network_fn for coarse samples
+                # ... forward pass for coarse samples with a separate coarse network
                 raw, position_delta_0 = network_query_fn(pts, viewdirs, frame_time, network_fn)
                 rgb_map_0, disp_map_0, acc_map_0, weights, depth_map_0, depth_std_map_0 = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
-
             else:
                 with torch.no_grad():
+                # ... forward pass for coarse samples with the same network
                     raw, _ = network_query_fn(pts, viewdirs, frame_time, network_fn)
                     _, _, _, weights, _, _ = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
 
-            # Draw fine samples in locations of high density
-            z_vals_mid = .5 * (z_vals[...,1:] + z_vals[...,:-1])
-            z_samples = sample_pdf(z_vals_mid, weights[...,1:-1], N_importance, det=(perturb==0.), pytest=pytest)
-            z_samples = z_samples.detach()
-            z_vals, _ = torch.sort(torch.cat([z_vals, z_samples], -1), -1)
-    
+            if use_depth_guided_sampling:
+                if depth_range is not None:
+                    # Train time: use precomputed samples along the whole ray and additionally sample around the depth
+                    valid_depth = depth_range[:,0] >= near[0, 0]
+                    invalid_depth = valid_depth.logical_not()
+                    def compute_samples_around_depth(raw, z_vals, rays_d, N_samples, perturb, lower_bound, near, far):
+                        sampling_depth, sampling_std = raw2depth(raw, z_vals, rays_d)
+                        sampling_std = sampling_std.clamp(min=lower_bound)
+                        depth_min = sampling_depth - 3. * sampling_std
+                        depth_max = sampling_depth + 3. * sampling_std
+                        return sample_3sigma(depth_min, depth_max, N_samples, perturb == 0., near, far)
+                    
+                    def sample_3sigma(low_3sigma, high_3sigma, N, det, near, far):
+                        t_vals = torch.linspace(0., 1., steps=N, device=device)
+                        step_size = (high_3sigma - low_3sigma) / (N - 1)
+                        bin_edges = (low_3sigma.unsqueeze(-1) * (1.-t_vals) + high_3sigma.unsqueeze(-1) * (t_vals)).clamp(near, far)
+                        factor = (bin_edges[..., 1:] - bin_edges[..., :-1]) / step_size.unsqueeze(-1)
+                        x_in_3sigma = torch.linspace(-3., 3., steps=(N - 1), device=device)
+                        bin_weights = factor * (1. / math.sqrt(2 * np.pi) * torch.exp(-0.5 * x_in_3sigma.pow(2))).unsqueeze(0).expand(*bin_edges.shape[:-1], N - 1)
+                        return sample_pdf(bin_edges, bin_weights, N, det=det)
+
+                    def raw2depth(raw, z_vals, rays_d):
+                        weights = compute_weights(raw, z_vals, rays_d)
+                        depth = torch.sum(weights * z_vals, -1)
+                        std = (((z_vals - depth.unsqueeze(-1)).pow(2) * weights).sum(-1)).sqrt()
+                        return depth, std
+
+                    def compute_weights(raw, z_vals, rays_d, noise=0.):
+                        raw2alpha = lambda raw, dists, act_fn=F.relu: 1.-torch.exp(-act_fn(raw)*dists)
+
+                        dists = z_vals[...,1:] - z_vals[...,:-1]
+                        dists = torch.cat([dists, torch.full_like(dists[...,:1], 1e10, device=device)], -1)  # [N_rays, N_samples]
+                        dists = dists * torch.norm(rays_d[...,None,:], dim=-1)
+                        
+                        alpha = raw2alpha(raw[...,3] + noise, dists)  # [N_rays, N_samples]
+                        # weights = alpha * tf.math.cumprod(1.-alpha + 1e-10, -1, exclusive=True)
+                        weights = alpha * torch.cumprod(torch.cat([torch.ones((alpha.shape[0], 1), device=device), 1.-alpha + 1e-10], -1), -1)[:, :-1]
+                        return weights
+
+                    z_vals_2 = torch.empty(N_rays, N_importance)
+                    # sample around the predicted depth from the first half of samples, if the input depth is invalid
+                    z_vals_2[invalid_depth] = compute_samples_around_depth(raw.detach()[invalid_depth], z_vals[invalid_depth], rays_d[invalid_depth], 
+                                                                           N_importance, perturb, lower_bound, near[0, 0], far[0, 0])
+                    # sample with in 3 sigma of the input depth, if it is valid
+                    z_vals_2[valid_depth] = sample_3sigma(depth_range[valid_depth, 1], depth_range[valid_depth, 2], 
+                                                          N_importance, perturb == 0., near[0, 0], far[0, 0])
+
+                else:
+                    # Test time: use precomputed samples along the whole ray and additionally sample around the predicted depth from the first half of samples
+                    z_vals_2 = compute_samples_around_depth(raw, z_vals, rays_d, N_importance, 
+                                                            perturb, lower_bound, near[0, 0], far[0, 0])
+                # Combine coarse and fine integration locations
+                pts_2 = rays_o[...,None,:] + rays_d[...,None,:] * z_vals_2[...,:,None]
+                raw_2 = network_query_fn(pts_2, viewdirs, frame_time, network_fn)
+                z_vals = torch.cat((z_vals, z_vals_2), -1)
+                raw = torch.cat((raw, raw_2), 1)
+                z_vals, indices = z_vals.sort()
+                raw = torch.gather(raw, 1, indices.unsqueeze(-1).expand_as(raw))
+            else:       
+                # Get fine samples from hierarchical sampling
+                z_vals_mid = .5 * (z_vals[...,1:] + z_vals[...,:-1])
+                z_samples = sample_pdf(z_vals_mid, weights[...,1:-1], N_importance, det=(perturb==0.), pytest=pytest)
+                z_samples = z_samples.detach()
+                z_vals, _ = torch.sort(torch.cat([z_vals, z_samples], -1), -1)
+
+
     pts = rays_o[...,None,:] + rays_d[...,None,:] * z_vals[...,:,None] # [N_rays, N_samples + N_importance, 3]
     run_fn = network_fn if network_fine is None else network_fine
     raw, position_delta = network_query_fn(pts, viewdirs, frame_time, run_fn)
     rgb_map, disp_map, acc_map, weights, depth_map, depth_std_map = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
 
+    # Rest is packaging
     ret = {
         'rgb_map': rgb_map,
         'disp_map': disp_map,
@@ -625,6 +716,8 @@ def config_parser():
                         help='std dev of noise added to regularize sigma_a output, 1e0 recommended')
     parser.add_argument("--use_two_models_for_fine", action='store_true',
                         help='use two models for fine results')
+    parser.add_argument("--use_depth_guided_sampling", action='store_true',
+                        help='use depth guided sampling instead of hierarchical sampling')
 
     parser.add_argument("--render_only", action='store_true', 
                         help='do not optimize, reload weights and render out render_poses path')
@@ -724,7 +817,8 @@ def train():
         images, depth_maps, poses, times, render_poses, render_times, hwff, i_split = load_deepdeform_data(args.datadir, args.half_res, args.testskip, args.render_pose_type)
         print(f"[Info] Loaded DeepDeform:\n\t\timages.shape: {images.shape}\n\t\trender_poses.shape: {render_poses.shape}\n\t\thwff: {hwff}\n\t\targs.datadir: {args.datadir}")
         i_train, i_val, i_test = i_split
-
+        print("====HERE====")
+        print(depth_maps.shape)
         near = 0.1
         far = np.max(depth_maps) + 0.1
         print(f"[Info] Setting near plane at distance {near} and far plane at distance {far}.")
@@ -778,6 +872,7 @@ def train():
     bds_dict = {
         'near' : near,
         'far' : far,
+        "use_depth_guided_sampling": args.use_depth_guided_sampling,
     }
     render_kwargs_train.update(bds_dict)
     render_kwargs_test.update(bds_dict)
@@ -902,12 +997,33 @@ def train():
                 select_coords = coords[select_inds].long()  # (N_rand, 2)
                 rays_o = rays_o[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
                 rays_d = rays_d[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
-                batch_rays = torch.stack([rays_o, rays_d], 0)
                 target_s = target[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
 
                 if comp_depth:
                     target_depth_s = target_depth[select_coords[:, 0], select_coords[:, 1]] # (N_rand,) # TODO J: Is this the right shape
-                    target_depth_s = target_depth_s.squeeze()
+                    #target_depth_s = target_depth_s.squeeze()       # FIXME remove queeze  (N_rand, 1) or (N_rand, 1)
+                    target_stds = torch.full(target_depth.shape, 0.5)       #FIXME this is only for now
+                    target_stds_s = target_stds[select_coords[:, 0], select_coords[:, 1]]
+                    if args.use_depth_guided_sampling:
+                        def comp_depth_sampling(depth, stds):
+                            """Computes ranges to sample depth locations from. 
+                            Min and max values are also computed for invalid depth values.
+
+                            Args:
+                                depth (torch.Tensor): [N_rand, 1]. Depth values.
+                                stds (torch.Tensor): [N_rand, 1]. Standard deviations.
+
+                            Returns:
+                                torch.Tensor: [N_rand, 3]. Sampling range (depth, depth_min, depth_max) for each ray.
+                            """
+                            depth_min = depth - 3. * stds   
+                            depth_max = depth + 3. * stds
+                            return torch.stack((depth, depth_min, depth_max), 1).squeeze()
+                            
+                        depth_range = comp_depth_sampling(target_depth_s, target_stds_s)
+                        batch_rays = torch.stack([rays_o, rays_d, depth_range], 0) # (3, N_rand, 3))
+                else:
+                    batch_rays = torch.stack([rays_o, rays_d], 0) # (2, N_rand, 3)
 
         ####################  Core optimization loop  ####################
         rgb, disp, acc, depth, extras = render(H, W, focal_x, focal_y, chunk=args.chunk, rays=batch_rays, frame_time=frame_time,

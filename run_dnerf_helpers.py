@@ -30,8 +30,8 @@ def depth2gnll(depth, target_depth, depth_std, target_depth_std=0.001): #TODO J:
     inds_nonzero = target_depth > 0.1
     inds_depth_prediction = (depth - target_depth).abs() > target_depth_std
     inds_depth_std_prediction = depth_std > target_depth_std
-    inds_valid = torch.logical_or(inds_nonzero, inds_depth_prediction)
-    inds_valid = torch.logical_or(inds_valid, inds_depth_std_prediction)
+    inds_valid = torch.logical_or(inds_depth_prediction, inds_depth_std_prediction)
+    inds_valid = torch.logical_and(inds_nonzero, inds_valid)
 
     depth = depth[inds_valid] 
     target_depth = target_depth[inds_valid] 
