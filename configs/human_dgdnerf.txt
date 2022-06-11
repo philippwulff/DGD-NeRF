@@ -1,4 +1,4 @@
-expname = human_05_depth_guided_sampling 
+expname = human_test 
 basedir = ./logs
 datadir = ./data/human
 dataset_type = deepdeform           

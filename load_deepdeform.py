@@ -169,7 +169,7 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1, render_pose_type="
         # assert times[0] == 0, "Time must start at 0"
 
         imgs = (np.array(imgs) / 255.).astype(np.float32)  # .jpg has 3 channels -> RGB
-        depth_maps = (np.array(depth_maps) / 255.).astype(np.float32)  # .jpg has 3 channels -> RGB
+        depth_maps = (np.array(depth_maps)).astype(np.float32)  
         poses = np.array(poses).astype(np.float32)
         times = np.array(times).astype(np.float32)
         counts.append(counts[-1] + imgs.shape[0])
