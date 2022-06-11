@@ -6,6 +6,7 @@ import numpy as np
 # from torchsearchsorted import searchsorted
 # supported in pytorch now: https://github.com/aliutkus/torchsearchsorted/issues/24
 from torch import searchsorted
+import math
 
 
 # Misc
@@ -19,6 +20,7 @@ def depth2mse(depth, target_depth):
     # TODO possibly scale mse loss by valid_pixels/all_pixels
     inds_nonzero = target_depth > 0.1
     return torch.mean((depth[inds_nonzero] - target_depth[inds_nonzero]) ** 2)
+
 
 def depth2gnll(depth, target_depth, depth_std, target_depth_std=0.001): #TODO J: find out target_depth_std and in which unit depth is given
     """
@@ -41,9 +43,6 @@ def depth2gnll(depth, target_depth, depth_std, target_depth_std=0.001): #TODO J:
     f = nn.GaussianNLLLoss(eps=0.001)
 
     return f(depth, target_depth, depth_var)
-
-
-
 
 
 # Positional encoding (section 5.1)
@@ -330,7 +329,7 @@ def get_rays(H, W, focal_x, focal_y, c2w):
         rays_o: Tensor
         rays_d: Tensor
     """
-    i, j = torch.meshgrid(torch.linspace(0, W-1, W), torch.linspace(0, H-1, H), indexing="ij")  # pytorch's meshgrid has indexing='ij'
+    i, j = torch.meshgrid(torch.linspace(0, W-1, W), torch.linspace(0, H-1, H), indexing="ij")
     i = i.t()   # transposes 2D tensor
     j = j.t()
     # The ray directions in the camera coordinate system. 
@@ -420,3 +419,44 @@ def sample_pdf(bins, weights, N_samples, det=False, pytest=False):
     samples = bins_g[...,0] + t * (bins_g[...,1]-bins_g[...,0])
 
     return samples
+
+
+# Volume Rendering helpers
+def compute_weights(raw, z_vals, rays_d, device=None, noise=0.):
+    raw2alpha = lambda raw, dists, act_fn=F.relu: 1.-torch.exp(-act_fn(raw)*dists)
+
+    dists = z_vals[...,1:] - z_vals[...,:-1]
+    dists = torch.cat([dists, torch.full_like(dists[...,:1], 1e10, device=device)], -1)  # [N_rays, N_samples]
+    dists = dists * torch.norm(rays_d[...,None,:], dim=-1)
+    
+    alpha = raw2alpha(raw[...,3] + noise, dists)  # [N_rays, N_samples]
+    # weights = alpha * tf.math.cumprod(1.-alpha + 1e-10, -1, exclusive=True)
+    weights = alpha * torch.cumprod(torch.cat([torch.ones((alpha.shape[0], 1), device=device), 1.-alpha + 1e-10], -1), -1)[:, :-1]
+    return weights
+
+def raw2depth(raw, z_vals, rays_d, device=None):
+    """Computes depth and standard deviations from network output."""
+    weights = compute_weights(raw, z_vals, rays_d, device)
+    depth = torch.sum(weights * z_vals, -1)
+    std = (((z_vals - depth.unsqueeze(-1)).pow(2) * weights).sum(-1)).sqrt()
+    return depth, std
+def compute_samples_around_depth(raw, z_vals, rays_d, N_samples, perturb, lower_bound, near, far, device=None):
+    """Computes samples within 3 sigma from the predicted depth."""
+    sampling_depth, sampling_std = raw2depth(raw, z_vals, rays_d, device)
+    sampling_std = sampling_std.clamp(min=lower_bound)
+    depth_min = sampling_depth - 3. * sampling_std
+    depth_max = sampling_depth + 3. * sampling_std
+    return sample_3sigma(depth_min, depth_max, N_samples, perturb == 0., near, far, device)
+
+def sample_3sigma(low_3sigma, high_3sigma, N, det, near, far, device=None):
+    """Samples N values from within 3 sigma. Clipped at near and far boundaries."""
+    t_vals = torch.linspace(0., 1., steps=N, device=device)
+    step_size = (high_3sigma - low_3sigma) / (N - 1)
+    bin_edges = (low_3sigma.unsqueeze(-1) * (1.-t_vals) + high_3sigma.unsqueeze(-1) * (t_vals)).clamp(near, far)
+    factor = (bin_edges[..., 1:] - bin_edges[..., :-1]) / step_size.unsqueeze(-1)
+    x_in_3sigma = torch.linspace(-3., 3., steps=(N - 1), device=device)
+    bin_weights = factor * (1. / math.sqrt(2 * np.pi) * torch.exp(-0.5 * x_in_3sigma.pow(2))).unsqueeze(0).expand(*bin_edges.shape[:-1], N - 1)
+    return sample_pdf(bin_edges, bin_weights, N, det=det)
+
+
+

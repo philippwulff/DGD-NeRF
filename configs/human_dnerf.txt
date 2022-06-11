@@ -1,4 +1,4 @@
-expname = human_05_depth_guided_sampling 
+expname = human_testtest
 basedir = ./logs
 datadir = ./data/human
 dataset_type = deepdeform           
@@ -7,9 +7,7 @@ nerf_type = direct_temporal
 no_batching = True
 not_zero_canonical = False
 
-use_depth_guided_sampling = True
-depth_loss_type = mse
-depth_loss_weight = 0.005
+depth_loss_weight = 0.
 
 use_viewdirs = False
 white_bkgd = False

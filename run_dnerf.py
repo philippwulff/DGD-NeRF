@@ -143,6 +143,7 @@ def render(H, W, focal_x, focal_y, chunk=1024*32, rays=None, c2w=None, ndc=True,
       depth_map: [batch_size]. Predicted depth of pixel.
       extras: dict with everything returned by render_rays().
     """
+    rays_depth = None
     if c2w is not None:
         # special case to render full image
         rays_o, rays_d = get_rays(H, W, focal_x, focal_y, c2w)
@@ -266,7 +267,7 @@ def create_nerf(args):
         # TODO P: Warum 3? sollte das nicht 2 sein?
 
     # output_ch only changes the net architecture if use_viewdirs is
-    output_ch = 5 if args.N_importance > 0 else 4
+    output_ch = 5 if args.N_importance > 0 else 4                   # TODO warum 5??? RGB + density???
     skips = [4]
     model = NeRF.get_by_name(args.nerf_type, D=args.netdepth, W=args.netwidth,
                  input_ch=input_ch, output_ch=output_ch, skips=skips,
@@ -313,7 +314,11 @@ def create_nerf(args):
     else:
         ckpts = [os.path.join(basedir, expname, f) for f in sorted(os.listdir(os.path.join(basedir, expname))) if 'tar' in f]
 
-    print("[Info] Found ckpts:\n\t\t" + '\n\t\t'.join(ckpts))
+    if len(ckpts) > 0:
+        print("[Info] Found ckpts:\n\t\t" + '\n\t\t'.join(ckpts))
+    else:
+        print("[Info] Found no ckpts")
+
     if len(ckpts) > 0 and not args.no_reload:
         ckpt_path = ckpts[-1]
         print('[Info] Reloading from', ckpt_path)
@@ -470,7 +475,7 @@ def render_rays(ray_batch,
             disp_map: [num_rays]. Disparity map. 1 / depth.
             acc_map: [num_rays]. Accumulated opacity along each ray. Comes from fine model.
             depth_map: TODO
-            raw: [num_rays, num_samples, 4]. Raw predictions from model.
+            raw: [num_rays, num_samples, 5]. Raw predictions from model.
             z_vals: TODO
             position_delta: TODO
             rgb0: See rgb_map. Output for coarse model.
@@ -533,14 +538,13 @@ def render_rays(ray_batch,
         #     raw, position_delta = network_query_fn(pts, viewdirs, frame_time, network_fn)
         #     rgb_map, disp_map, acc_map, weights, depth_map, depth_std_map = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
         
-        # Create fine intagration locations in regions of high density along the rays
-        if N_importance > 0:            
+        if N_importance > 0:   # If fine samples wanted         
             if use_two_models_for_fine:     
-                # ... forward pass for coarse samples with a separate coarse network
+                # Forward pass for coarse samples with a separate coarse network
                 raw, position_delta_0 = network_query_fn(pts, viewdirs, frame_time, network_fn)
                 rgb_map_0, disp_map_0, acc_map_0, weights, depth_map_0, depth_std_map_0 = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
             else:
-                # ... forward pass for coarse samples with the same network
+                # Forward pass for coarse samples with the same network
                 with torch.no_grad():
                     raw, _ = network_query_fn(pts, viewdirs, frame_time, network_fn)
                     _, _, _, weights, _, _ = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
@@ -550,52 +554,17 @@ def render_rays(ray_batch,
                     # Train time: use precomputed samples along the whole ray and additionally sample around the depth
                     valid_depth = depth_range[:,0] >= near[0, 0]
                     invalid_depth = valid_depth.logical_not()
-                    def compute_samples_around_depth(raw, z_vals, rays_d, N_samples, perturb, lower_bound, near, far):
-                        sampling_depth, sampling_std = raw2depth(raw, z_vals, rays_d)
-                        sampling_std = sampling_std.clamp(min=lower_bound)
-                        depth_min = sampling_depth - 3. * sampling_std
-                        depth_max = sampling_depth + 3. * sampling_std
-                        return sample_3sigma(depth_min, depth_max, N_samples, perturb == 0., near, far)
-                    
-                    def sample_3sigma(low_3sigma, high_3sigma, N, det, near, far):
-                        t_vals = torch.linspace(0., 1., steps=N, device=device)
-                        step_size = (high_3sigma - low_3sigma) / (N - 1)
-                        bin_edges = (low_3sigma.unsqueeze(-1) * (1.-t_vals) + high_3sigma.unsqueeze(-1) * (t_vals)).clamp(near, far)
-                        factor = (bin_edges[..., 1:] - bin_edges[..., :-1]) / step_size.unsqueeze(-1)
-                        x_in_3sigma = torch.linspace(-3., 3., steps=(N - 1), device=device)
-                        bin_weights = factor * (1. / math.sqrt(2 * np.pi) * torch.exp(-0.5 * x_in_3sigma.pow(2))).unsqueeze(0).expand(*bin_edges.shape[:-1], N - 1)
-                        return sample_pdf(bin_edges, bin_weights, N, det=det)
-
-                    def raw2depth(raw, z_vals, rays_d):
-                        weights = compute_weights(raw, z_vals, rays_d)
-                        depth = torch.sum(weights * z_vals, -1)
-                        std = (((z_vals - depth.unsqueeze(-1)).pow(2) * weights).sum(-1)).sqrt()
-                        return depth, std
-
-                    def compute_weights(raw, z_vals, rays_d, noise=0.):
-                        raw2alpha = lambda raw, dists, act_fn=F.relu: 1.-torch.exp(-act_fn(raw)*dists)
-
-                        dists = z_vals[...,1:] - z_vals[...,:-1]
-                        dists = torch.cat([dists, torch.full_like(dists[...,:1], 1e10, device=device)], -1)  # [N_rays, N_samples]
-                        dists = dists * torch.norm(rays_d[...,None,:], dim=-1)
-                        
-                        alpha = raw2alpha(raw[...,3] + noise, dists)  # [N_rays, N_samples]
-                        # weights = alpha * tf.math.cumprod(1.-alpha + 1e-10, -1, exclusive=True)
-                        weights = alpha * torch.cumprod(torch.cat([torch.ones((alpha.shape[0], 1), device=device), 1.-alpha + 1e-10], -1), -1)[:, :-1]
-                        return weights
-
                     z_vals_2 = torch.zeros((N_rays, N_importance))
                     # sample around the predicted depth from the first half of samples, if the input depth is invalid
                     z_vals_2[invalid_depth] = compute_samples_around_depth(raw.detach()[invalid_depth], z_vals[invalid_depth], rays_d[invalid_depth], 
-                                                                           N_importance, perturb, lower_bound, near[0, 0], far[0, 0])
+                                                                           N_importance, perturb, lower_bound, near[0, 0], far[0, 0], device=device)
                     # sample with in 3 sigma of the input depth, if it is valid
                     z_vals_2[valid_depth] = sample_3sigma(depth_range[valid_depth, 1], depth_range[valid_depth, 2], 
-                                                          N_importance, perturb == 0., near[0, 0], far[0, 0])
-
+                                                          N_importance, perturb == 0., near[0, 0], far[0, 0], device=device)
                 else:
                     # Test time: use precomputed samples along the whole ray and additionally sample around the predicted depth from the first half of samples
                     z_vals_2 = compute_samples_around_depth(raw, z_vals, rays_d, N_importance, 
-                                                            perturb, lower_bound, near[0, 0], far[0, 0])
+                                                            perturb, lower_bound, near[0, 0], far[0, 0], device=device)
                 # Combine coarse and fine integration locations
                 pts_2 = rays_o[...,None,:] + rays_d[...,None,:] * z_vals_2[...,:,None]
                 raw_2, _ = network_query_fn(pts_2, viewdirs, frame_time, network_fn)
@@ -741,8 +710,8 @@ def config_parser():
                         help='evaluate tv loss')
     parser.add_argument("--tv_loss_weight", type=float,
                         default=1.e-4, help='weight of tv loss')
-    parser.add_argument("--add_depth_loss", action="store_true",
-                        help="use depth maps for supervision")
+    parser.add_argument("--depth_loss_type", default="mse",
+                        help="use depth maps for supervision with MSE or Gaussian-Neg-Log-Likelihood. Options: mse / gnll")
     parser.add_argument("--depth_loss_weight", type=float,
                         default=0.01, help='weight of depth loss')
 
@@ -819,8 +788,6 @@ def train():
         images, depth_maps, poses, times, render_poses, render_times, hwff, i_split = load_deepdeform_data(args.datadir, args.half_res, args.testskip, args.render_pose_type)
         print(f"[Info] Loaded DeepDeform:\n\t\timages.shape: {images.shape}\n\t\trender_poses.shape: {render_poses.shape}\n\t\thwff: {hwff}\n\t\targs.datadir: {args.datadir}")
         i_train, i_val, i_test = i_split
-        print("====HERE====")
-        print(depth_maps.shape)
         near = 0.1
         far = np.max(depth_maps) + 0.1
         print(f"[Info] Setting near plane at distance {near} and far plane at distance {far}.")
@@ -839,7 +806,10 @@ def train():
         assert min_time >= 0., "time must be >= 0"
         assert max_time <= 1., "max time must be <= 1"
 
-    comp_depth = True if args.add_depth_loss else False
+    if args.depth_loss_type not in ["mse", "gnll"]:
+        print(f"[WARNING] Invalid depth loss type: {args.depth_loss_type}. Exiting.")
+        return       
+    comp_depth = True if args.depth_loss_weight > 0 or args.use_depth_guided_sampling else False
     if depth_maps is None and comp_depth:
         print("[WARNING] No depth maps loaded. Cannot apply depth loss. Exiting.")
         return
@@ -936,7 +906,7 @@ def train():
 
 
     N_iters = args.N_iter + 1
-    print('[Info] Begin training')
+    print('[Info] Beginning training')
 
     # Summary writers
     writer = SummaryWriter(os.path.join(basedir, 'summaries', expname))
@@ -984,15 +954,15 @@ def train():
                 if i < args.precrop_iters:
                     dH = int(H//2 * args.precrop_frac)
                     dW = int(W//2 * args.precrop_frac)
-                    coords = torch.stack(
-                        torch.meshgrid(
-                            torch.linspace(H//2 - dH, H//2 + dH - 1, 2*dH), 
-                            torch.linspace(W//2 - dW, W//2 + dW - 1, 2*dW)
-                        ), -1)
+                    coords = torch.stack(torch.meshgrid(
+                        torch.linspace(H//2 - dH, H//2 + dH - 1, 2*dH),
+                        torch.linspace(W//2 - dW, W//2 + dW - 1, 2*dW), indexing="ij"
+                    ), -1)
                     if i == start:
                         print(f"[Config] Center cropping of size {2*dH} x {2*dW} is enabled until iter {args.precrop_iters}")                
                 else:
-                    coords = torch.stack(torch.meshgrid(torch.linspace(0, H-1, H), torch.linspace(0, W-1, W)), -1)  # (H, W, 2)
+                    coords = torch.stack(torch.meshgrid(torch.linspace(
+                        0, H-1, H), torch.linspace(0, W-1, W), indexing="ij"), -1)  # (H, W, 2)
 
                 coords = torch.reshape(coords, [-1,2])  # (H * W, 2)
                 select_inds = np.random.choice(coords.shape[0], size=[N_rand], replace=False)  # (N_rand,)
@@ -1001,8 +971,9 @@ def train():
                 rays_d = rays_d[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
                 target_s = target[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
 
+                batch_rays = torch.stack([rays_o, rays_d], 0) # (2, N_rand, 3)
                 if comp_depth:
-                    target_depth_s = target_depth[select_coords[:, 0], select_coords[:, 1]] # (N_rand,) # TODO J: Is this the right shape
+                    target_depth_s = target_depth[select_coords[:, 0], select_coords[:, 1]] # (N_rand, 1) 
                     #target_depth_s = target_depth_s.squeeze()       # FIXME remove queeze  (N_rand, 1) or (N_rand, 1)
                     target_stds = torch.full(target_depth.shape, 0.5)       #FIXME this is only for now
                     target_stds_s = target_stds[select_coords[:, 0], select_coords[:, 1]]
@@ -1024,8 +995,6 @@ def train():
                             
                         depth_range = comp_depth_sampling(target_depth_s, target_stds_s)
                         batch_rays = torch.stack([rays_o, rays_d, depth_range], 0) # (3, N_rand, 3))
-                else:
-                    batch_rays = torch.stack([rays_o, rays_d], 0) # (2, N_rand, 3)
 
         ####################  Core optimization loop  ####################
         rgb, disp, acc, depth, extras = render(H, W, focal_x, focal_y, chunk=args.chunk, rays=batch_rays, frame_time=frame_time,
@@ -1069,10 +1038,10 @@ def train():
             tv_loss = tv_loss * args.tv_loss_weight
 
         depth_loss = 0
-        if args.add_depth_loss:
+        if args.depth_loss_weight > 0:
             # MSE loss over valid pixels
-            #depth_loss = depth2mse(depth, target_depth_s)
-            depth_loss = depth2gnll(depth, target_depth_s, extras['depth_std_map']) #target_depth_std_s) #FIXME J: Change to correct variable names for variances
+            depth_loss = depth2mse(depth, target_depth_s.squeeze())
+            #depth_loss = depth2gnll(depth, target_depth_s, extras['depth_std_map']) #target_depth_std_s) #FIXME J: Change to correct variable names for variances
             
         loss = img_loss + tv_loss + args.depth_loss_weight * depth_loss 
 
@@ -1082,7 +1051,7 @@ def train():
         if 'rgb0' in extras:
             img_loss0 = img2mse(extras['rgb0'], target_s)
             depth_loss0 = 0
-            if args.add_depth_loss:
+            if args.depth_loss_weight > 0:
                 depth_loss0 = depth2mse(extras['depth0'], target_depth_s) #FIXME J: Not tested yet: set use_two_models_fine=True
             loss0 = img_loss0 + args.depth_loss_weight * depth_loss0
             loss += loss0
@@ -1134,14 +1103,14 @@ def train():
             tqdm_txt = f"[TRAIN] Iter: {i} Loss_fine: {img_loss.item()} PSNR: {psnr.item()}"
             if args.add_tv_loss:
                 tqdm_txt += f" TV: {tv_loss.item()}"
-            if args.add_depth_loss:
+            if args.depth_loss_weight > 0:
                 tqdm_txt += f" Depth_loss: {depth_loss.item()}"
             tqdm.write(tqdm_txt)
 
             writer.add_scalar('train_1_loss', loss.item(), i)
             writer.add_scalar('train_2_img_loss', img_loss.item(), i)
             writer.add_scalar('train_3_psnr', psnr.item(), i)
-            if args.add_depth_loss:
+            if args.depth_loss_weight > 0:
                 writer.add_scalar('train_4_depth_loss', depth_loss.item(), i) 
             if args.add_tv_loss:
                 writer.add_scalar('train_5_tv', tv_loss.item(), i)
@@ -1149,7 +1118,7 @@ def train():
                 writer.add_scalar('train_6_loss0', loss0.item(), i)
                 writer.add_scalar('train_img_7_loss0', img_loss0.item(), i)
                 writer.add_scalar('train_8_psnr0', psnr0.item(), i)
-                if args.add_depth_loss:
+                if args.depth_loss_weight > 0:
                     writer.add_scalar('train_depth_9_loss0', depth_loss0.item(), i)
 
 
@@ -1158,7 +1127,7 @@ def train():
             del img_loss0, psnr0
         if args.add_tv_loss:
             del tv_loss
-        if args.add_depth_loss:
+        if args.depth_loss_weight > 0:
             del depth_loss, target_depth_s
             if "rgb0" in extras:
                 del depth_loss0
@@ -1182,21 +1151,21 @@ def train():
 
             img_loss = img2mse(rgb, target)
             depth_loss = 0
-            if args.add_depth_loss:
+            if args.depth_loss_weight > 0:
                 depth_loss = depth2mse(depth, target_depth)
 
             loss = img_loss + args.depth_loss_weight * depth_loss
             psnr = mse2psnr(img_loss)
 
             tqdm_txt = f"[VAL] Iter: {i} Val_loss: {loss.item()} Val_img_loss: {img_loss.item()}"
-            if args.add_depth_loss:
+            if args.depth_loss_weight > 0:
                 tqdm_txt += f" Val_depth_loss: {depth_loss.item()}"
             tqdm.write(tqdm_txt)
 
             writer.add_scalar('val_1_loss', loss.item(), i)
             writer.add_scalar('val_2_img_loss', img_loss.item(), i)
             writer.add_scalar('val_3_psnr', psnr.item(), i)
-            if args.add_depth_loss:
+            if args.depth_loss_weight > 0:
                 writer.add_scalar('val_4_depth_loss', depth_loss.item(), i)     
             writer.add_image('val_5_rgb_gt', to8b(target.cpu().numpy()), i, dataformats='HWC')
             writer.add_image('val_6_rgb', to8b(rgb.cpu().numpy()), i, dataformats='HWC')
