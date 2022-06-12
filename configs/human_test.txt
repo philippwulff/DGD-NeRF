@@ -1,4 +1,4 @@
-expname = human_04_test_gnll_loss 
+expname = human_test 
 basedir = ./logs
 datadir = ./data/human
 dataset_type = deepdeform           
@@ -6,6 +6,10 @@ dataset_type = deepdeform
 nerf_type = direct_temporal
 no_batching = True
 not_zero_canonical = False
+
+use_depth_guided_sampling = True
+depth_loss_type = mse
+depth_loss_weight = 0.005
 
 use_viewdirs = False
 white_bkgd = False
@@ -24,9 +28,7 @@ precrop_frac = 0.5
 half_res = True
 do_half_precision = False
 
-i_img = 10000
-add_depth_loss = True
-depth_loss_weight = 0.005
+i_img = 100
 
 no_reload = True
 render_pose_type = spiral

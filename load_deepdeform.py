@@ -12,6 +12,8 @@ import math
 from load_blender import trans_t, rot_phi, rot_theta
 
 
+HUMAN_SCENE_OBJECT_DEPTH = 1500         # in mm
+
 def pose_spherical2(alpha, beta, radius):
     """Computes camera poses on a sphere around the world coordinate origin without spherical coordinates.
 
@@ -99,7 +101,7 @@ def extract_deepdeform_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
         f_y = intrinsics_matrix[1, 1]
 
     transform_matrix = np.identity(4)
-    transform_matrix[2, 3] = 6.
+    transform_matrix[2, 3] = HUMAN_SCENE_OBJECT_DEPTH
     
     for s in splits:
         rgb_dir = Path(f"./data/{scene_name}/{s}/")
@@ -206,9 +208,9 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1, render_pose_type="
     else:
 
         if render_pose_type == "spherical":
-            render_poses = torch.stack([pose_spherical2(0, angle, 6.0) for angle in np.linspace(-20,20,120+1)], 0)       # changed from (-180,180,40+1)
+            render_poses = torch.stack([pose_spherical2(0, angle, HUMAN_SCENE_OBJECT_DEPTH) for angle in np.linspace(-20,20,120+1)], 0)       # changed from (-180,180,40+1)
         elif render_pose_type == "spiral": 
-            render_poses = torch.stack([pose_spiral(angle, z_cam_dist, 6.0, H, W) for angle, z_cam_dist in 
+            render_poses = torch.stack([pose_spiral(angle, z_cam_dist, HUMAN_SCENE_OBJECT_DEPTH, H, W) for angle, z_cam_dist in              
                                         zip(np.linspace(0, 2*360, 120), np.linspace(0, -3, 120))], 0)
 
     render_times = torch.linspace(0., 1., render_poses.shape[0])
