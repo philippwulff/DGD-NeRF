@@ -97,6 +97,7 @@ def run_network(inputs, viewdirs, frame_time, fn, embed_fn, embeddirs_fn, embedt
 
 def batchify_rays(rays_flat, chunk=1024*32, H=None, W=None, **kwargs):
     """Render rays in smaller minibatches to avoid OOM errors.
+
     Args:
         rays_flat: [batch_size, 9] or [batch_size, 12] or [batch_size, 15]. all ray directions from a camera.
         chunk: int. The max number of rays to process in parallel. Defaults to 1024*32.
@@ -1084,6 +1085,7 @@ def train():
         loss = img_loss + tv_loss + args.depth_loss_weight * depth_loss 
 
         psnr = mse2psnr(img_loss)
+        #FIXME J: psnr = mse2psnr((img_loss+depth_loss))
 
         if 'rgb0' in extras:
             img_loss0 = img2mse(extras['rgb0'], target_s)

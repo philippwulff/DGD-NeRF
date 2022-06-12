@@ -12,8 +12,11 @@ import math
 from load_blender import trans_t, rot_phi, rot_theta
 
 
+<<<<<<< HEAD
 HUMAN_SCENE_OBJECT_DEPTH = 1500         # in mm
 
+=======
+>>>>>>> 40b4989a573b8e615e644123f24710b5a7e0a195
 def pose_spherical2(alpha, beta, radius):
     """Computes camera poses on a sphere around the world coordinate origin without spherical coordinates.
 
