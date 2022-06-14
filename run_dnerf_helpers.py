@@ -22,7 +22,7 @@ def depth2mse(depth, target_depth):
     return torch.mean((depth[inds_nonzero] - target_depth[inds_nonzero]) ** 2)
 
 
-def depth2gnll(depth, target_depth, depth_std, target_depth_std=0.001): #TODO J: find out target_depth_std and in which unit depth is given
+def depth2gnll(depth, target_depth, depth_std, target_depth_std=0.01): #TODO J: find out target_depth_std and in which unit depth is given
     """
     Calculate Gaussian Negative Log Likelihood Loss over valid depth rays.
     Calculate only if 

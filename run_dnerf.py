@@ -419,8 +419,10 @@ def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, white_bkgd=False, pytest=F
     rgb_map = torch.sum(weights[...,None] * rgb, -2)  # [N_rays, 3]
 
     depth_map = torch.sum(weights * z_vals, -1)
-    depth_std_map = ((((z_vals - depth_map.unsqueeze(-1)).pow(2) * weights).sum(-1)) + 1e-6).sqrt() #FIXME J sqrt bekommt nan in [0] in Iteration 500 im backward()
-    
+    print("===HERE===") #FIXME J:Delete
+    print((raw[...,3] + noise).shape)
+    print(raw[...,3] + noise)
+    depth_std_map = ((((z_vals - depth_map.unsqueeze(-1)).pow(2) * weights).sum(-1)) + 1e-6).sqrt()     
     disp_map = 1./torch.max(1e-10 * torch.ones_like(depth_map), depth_map / torch.sum(weights, -1))
     acc_map = torch.sum(weights, -1)
 
@@ -587,7 +589,7 @@ def render_rays(ray_batch,
                     z_fine = compute_samples_around_depth(raw, z_coarse, rays_d, N_importance, 
                                                           perturb, lower_bound, near[0, 0], far[0, 0], device=device)
                 # Combine coarse and fine integration locations
-                # pts_2 = rays_o[...,None,:] + rays_d[...,None,:] * z_vals_2[...,:,None]
+                # pts_2 = rays_o[...,None,:] + rays_d[...,None,:] * z_fine[...,:,None]
                 # raw_2, _ = network_query_fn(pts_2, viewdirs, frame_time, network_fn)
                 z_vals = torch.cat((z_coarse, z_fine), -1)
                 # raw = torch.cat((raw, raw_2), 1)
@@ -598,7 +600,7 @@ def render_rays(ray_batch,
                 z_vals_mid = .5 * (z_coarse[...,1:] + z_coarse[...,:-1])
                 z_samples = sample_pdf(z_vals_mid, weights[...,1:-1], N_importance, det=(perturb==0.), pytest=pytest)
                 z_samples = z_samples.detach()
-                z_vals, _ = torch.sort(torch.cat([z_vals, z_samples], -1), -1)
+                z_vals, _ = torch.sort(torch.cat([z_coarse, z_samples], -1), -1) #TODO J: Habe z_vals zu z_coarse geändert -- denke da ist richtig
         else:
             z_vals = z_coarse
 
@@ -1079,9 +1081,12 @@ def train():
         depth_loss = 0
         if args.depth_loss_weight > 0:
             # MSE loss over valid pixels
-            depth_loss = depth2mse(depth, target_depth_s.squeeze())
-            #depth_loss = depth2gnll(depth, target_depth_s, extras['depth_std_map']) #target_depth_std_s) #FIXME J: Change to correct variable names for variances
-            
+            if args.depth_loss_type == "mse":
+                depth_loss = depth2mse(depth, target_depth_s.squeeze())
+            elif args.depth_loss_type == "gnll":
+                depth_loss = depth2gnll(depth, target_depth_s.squeeze(), extras['depth_std_map']) #target_depth_std_s) #FIXME J: Change to correct variable names for variances
+            else:
+                print("No depth_loss_type specified -- either mse or gnll")
         loss = img_loss + tv_loss + args.depth_loss_weight * depth_loss 
 
         psnr = mse2psnr(img_loss)
