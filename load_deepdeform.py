@@ -12,7 +12,7 @@ import math
 from load_blender import trans_t, rot_phi, rot_theta
 
 
-HUMAN_SCENE_OBJECT_DEPTH = 1500         # in mm
+SCENE_OBJECT_DEPTH = 1.5         # Distance to the main object of the scene in meters
 
 def pose_spherical2(alpha, beta, radius):
     """Computes camera poses on a sphere around the world coordinate origin without spherical coordinates.
@@ -61,6 +61,7 @@ def pose_spiral(theta, z_cam, z_cam_glob, H, W):
 def extract_deepdeform_data(datadir, scene_name, start_frame_i=0, end_frame_i=None, step=1, train_p=0.7, val_p=0.15, test_p=0.15):
     """Converts a given sequence from the DeepDeform dataset to the required format.
     Download DeepDeform at: https://github.com/AljazBozic/DeepDeform
+    All lengths is in mm.
 
     Args:
         datadir (str): The path leading to the sequence directory, e.g. path/to/deepdeform/seq000/
@@ -101,7 +102,7 @@ def extract_deepdeform_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
         f_y = intrinsics_matrix[1, 1]
 
     transform_matrix = np.identity(4)
-    transform_matrix[2, 3] = HUMAN_SCENE_OBJECT_DEPTH
+    transform_matrix[2, 3] = SCENE_OBJECT_DEPTH * 1000    # in mm
     
     for s in splits:
         rgb_dir = Path(f"./data/{scene_name}/{s}/")
@@ -111,6 +112,7 @@ def extract_deepdeform_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
         transforms = {
             "camera_angle_x": 2 * np.arctan(680/(2*f_x)),        # AOV in x dimension; height and width are fixed in DeepDeform
             "camera_angle_y": 2 * np.arctan(480/(2*f_y)),        # AOV in y dimension
+            "SCENE_OBJECT_DEPTH_at_extraction": SCENE_OBJECT_DEPTH,
             "frames": []
         }
         for i, frame in enumerate(splits[s]):
@@ -133,7 +135,18 @@ def extract_deepdeform_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
 
 
 def load_deepdeform_data(basedir, half_res=False, testskip=1, render_pose_type="spherical"):
+    """Returns extracted DeepDeform data in compatible format. All output lengths are in meters.
 
+    Args:
+        basedir (str): Path to dataset.
+        half_res (bool, optional): Whether to load img at half resolution. Defaults to False.
+        testskip (int, optional): Use only every testskip-nd image. Defaults to 1.
+        render_pose_type (str, optional): How to compute render poses. Defaults to "spherical".
+
+    Returns:
+        imgs: TODO
+        TODO
+    """
     splits = ['train', 'val', 'test']
     metas = {}
     for s in splits:
@@ -171,8 +184,9 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1, render_pose_type="
         # assert times[0] == 0, "Time must start at 0"
 
         imgs = (np.array(imgs) / 255.).astype(np.float32)  # .jpg has 3 channels -> RGB
-        depth_maps = (np.array(depth_maps)).astype(np.float32)  
-        poses = np.array(poses).astype(np.float32)
+        depth_maps = (np.array(depth_maps) / 1000.).astype(np.float32)  # convert mm to m
+        poses = (np.array(poses)).astype(np.float32)
+        poses[:, 0:3, 3] = poses[:, 0:3, 3] / 1000.         # convert mm to m
         times = np.array(times).astype(np.float32)
         counts.append(counts[-1] + imgs.shape[0])
         all_imgs.append(imgs)
@@ -208,10 +222,10 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1, render_pose_type="
     else:
 
         if render_pose_type == "spherical":
-            render_poses = torch.stack([pose_spherical2(0, angle, HUMAN_SCENE_OBJECT_DEPTH) for angle in np.linspace(-20,20,120+1)], 0)       # changed from (-180,180,40+1)
+            render_poses = torch.stack([pose_spherical2(0, angle, SCENE_OBJECT_DEPTH) for angle in np.linspace(-20,20,120+1)], 0)       # changed from (-180,180,40+1)
         elif render_pose_type == "spiral": 
-            render_poses = torch.stack([pose_spiral(angle, z_cam_dist, HUMAN_SCENE_OBJECT_DEPTH, H, W) for angle, z_cam_dist in              
-                                        zip(np.linspace(0, 2*360, 120), np.linspace(0, -3, 120))], 0)
+            render_poses = torch.stack([pose_spiral(angle, z_cam_dist, SCENE_OBJECT_DEPTH, H, W) for angle, z_cam_dist in              
+                                        zip(np.linspace(0, 2*360, 120), np.linspace(0, -SCENE_OBJECT_DEPTH, 120))], 0)
 
     render_times = torch.linspace(0., 1., render_poses.shape[0])
     
@@ -236,10 +250,10 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1, render_pose_type="
 if __name__ == "__main__":
     print("EXTRACTING DATA")
     # extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq120", "office")
-    extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq045", "human", end_frame_i=200)
+    # extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq045", "human", end_frame_i=200)
     # extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq150", "bag")
-    exit(0)
+    #exit(0)
 
     # print("DEBUGGING")
-    # images, depth_maps, poses, times, render_poses, render_times, hwf, i_split = load_deepdeform_data("./data/office", True, 1)
+    # images, depth_maps, poses, times, render_poses, render_times, hwf, i_split = load_deepdeform_data("./data/human", True, 1)
     # print('Loaded deepdeform', images.shape, render_poses.shape, hwf)
