@@ -7,7 +7,7 @@ nerf_type = direct_temporal
 no_batching = True
 not_zero_canonical = False
 
-use_depth_guided_sampling = False
+use_depth_guided_sampling = True
 depth_loss_type = mse
 depth_loss_weight = 0.005
 

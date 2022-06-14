@@ -889,7 +889,7 @@ def train():
     }
     render_kwargs_train.update(bds_dict)
     render_kwargs_test.update(bds_dict)
-    render_kwargs_test["monitor_sampling"] = True       # FIXME
+    render_kwargs_test["monitor_sampling"] = DEBUG       # FIXME
 
     # Move testing data to GPU
     render_poses = torch.Tensor(render_poses).to(device)
