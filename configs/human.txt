@@ -30,4 +30,4 @@ depth_loss_weight = 0.005
 use_depth_guided_sampling=True
 
 no_reload = True
-render_pose_type = spiral
+render_pose_type = spherical
