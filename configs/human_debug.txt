@@ -1,4 +1,4 @@
-expname = human_07_mse_dgs
+expname = human_debug
 basedir = ./logs
 datadir = ./data/human
 dataset_type = deepdeform           
@@ -28,7 +28,7 @@ precrop_frac = 0.5
 half_res = True
 do_half_precision = False
 
-i_img = 10000
+i_img = 100
 
 no_reload = True
 render_pose_type = spiral

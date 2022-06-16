@@ -434,12 +434,14 @@ def compute_weights(raw, z_vals, rays_d, device=None, noise=0.):
     weights = alpha * torch.cumprod(torch.cat([torch.ones((alpha.shape[0], 1), device=device), 1.-alpha + 1e-10], -1), -1)[:, :-1]
     return weights
 
+
 def raw2depth(raw, z_vals, rays_d, device=None):
     """Computes depth and standard deviations from network output."""
     weights = compute_weights(raw, z_vals, rays_d, device)
     depth = torch.sum(weights * z_vals, -1)
     std = (((z_vals - depth.unsqueeze(-1)).pow(2) * weights).sum(-1)).sqrt()
     return depth, std
+
 def compute_samples_around_depth(raw, z_vals, rays_d, N_samples, perturb, lower_bound, near, far, device=None):
     """Computes samples within 3 sigma from the predicted depth."""
     sampling_depth, sampling_std = raw2depth(raw, z_vals, rays_d, device)
@@ -447,6 +449,7 @@ def compute_samples_around_depth(raw, z_vals, rays_d, N_samples, perturb, lower_
     depth_min = sampling_depth - 3. * sampling_std
     depth_max = sampling_depth + 3. * sampling_std
     return sample_3sigma(depth_min, depth_max, N_samples, perturb == 0., near, far, device)
+
 
 def sample_3sigma(low_3sigma, high_3sigma, N, det, near, far, device=None):
     """Samples N values from within 3 sigma. Clipped at near and far boundaries."""
@@ -459,4 +462,27 @@ def sample_3sigma(low_3sigma, high_3sigma, N, det, near, far, device=None):
     return sample_pdf(bin_edges, bin_weights, N, det=det)
 
 
+def comp_quadratic_samples(near, far, num_samples):
+    """normal parabola between 0.1 and 1, shifted and scaled to have y range between near and far"""
+    start = 0.1
+    x = torch.linspace(0, 1, num_samples)
+    c = near
+    a = (far - near)/(1. + 2. * start)
+    b = 2. * start * a
+    return a * x.pow(2) + b * x + c
 
+
+def comp_depth_sampling(depth, stds):
+    """Computes ranges to sample depth locations from. 
+    Min and max values are also computed for invalid depth values.
+
+    Args:
+        depth (torch.Tensor): [N_rand, 1]. Depth values.
+        stds (torch.Tensor): [N_rand, 1]. Standard deviations.
+
+    Returns:
+        torch.Tensor: [N_rand, 3]. Sampling range (depth, depth_min, depth_max) for each ray.
+    """
+    depth_min = depth - 3. * stds   
+    depth_max = depth + 3. * stds
+    return torch.stack((depth, depth_min, depth_max), 1).squeeze()

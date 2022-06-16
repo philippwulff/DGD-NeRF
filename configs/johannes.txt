@@ -1,15 +1,11 @@
-expname = human_test 
+expname = johannes_01_test_data_loading 
 basedir = ./logs
-datadir = ./data/human
-dataset_type = deepdeform           
+datadir = ./data/johannes
+dataset_type = owndataset           
 
 nerf_type = direct_temporal
 no_batching = True
 not_zero_canonical = False
-
-use_depth_guided_sampling = True
-depth_loss_type = mse
-depth_loss_weight = 0.005
 
 use_viewdirs = False
 white_bkgd = False
@@ -28,7 +24,10 @@ precrop_frac = 0.5
 half_res = True
 do_half_precision = False
 
-i_img = 100
+i_img = 10000
+depth_loss_type = mse
+depth_loss_weight = 0.005
+use_depth_guided_sampling=False
 
 no_reload = True
 render_pose_type = spiral

@@ -50,3 +50,13 @@ def draw_cam(rays_o, rays_d, ax, focal_dist=1.):
     # plot camera frame
     for p1, p2 in list(itertools.permutations(ps, 2)):
         ax.plot([p1[0], p2[0]], [p1[1], p2[1]], [p1[2], p2[2]], color="grey", ls="--")
+
+
+def draw_ray(ray_ori, ray_dir, coarse, fine, depth, near, far, ax, coarse_c="orange", fine_c="purple"):
+    ray_near = ray_ori + near * ray_dir
+    ray_far = ray_ori + far * ray_dir
+    # ax.plot([ray_near[0], ray_far[0]], [ray_near[1], ray_far[1]], [ray_near[2], ray_far[2]], color="grey")
+    ax.scatter(coarse[:,0], coarse[:,1], coarse[:,2], color=coarse_c, s=3)
+    ax.scatter(fine[:,0], fine[:,1], fine[:,2], color=fine_c, s=5)
+    depth = ray_ori + depth * ray_dir
+    ax.scatter(depth[0], depth[1], depth[2], color="black", marker="v", s=50)

@@ -23,7 +23,8 @@ import torch.nn as nn
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")           
 if device.type == "cuda":
-    print(f"[Info] Using CUDA version {torch.version.cuda} on {torch.cuda.get_device_name(device.index).strip()} with global GPU index {os.environ['CUDA_VISIBLE_DEVICES']}")
+    GPU_INDEX = os.environ['CUDA_VISIBLE_DEVICES']
+    print(f"[Info] Using CUDA version {torch.version.cuda} on {torch.cuda.get_device_name(device.index).strip()} with global GPU index {GPU_INDEX}")
 
 torch.manual_seed(0)
 np.random.seed(0)
@@ -107,25 +108,25 @@ def batchify_rays(rays_flat, chunk=1024*32, H=None, W=None, **kwargs):
         TODO
     """
     all_ret = defaultdict(list)
-    all_monitor = defaultdict(list)
+    all_ray_debug = defaultdict(list)
     for i in range(0, rays_flat.shape[0], chunk):
-        ret, monitor = render_rays(rays_flat[i:i+chunk], **kwargs)
+        ret, ray_debug = render_rays(rays_flat[i:i+chunk], **kwargs)
         for k in ret:
             # if k not in all_ret:
             #     all_ret[k] = []
             all_ret[k].append(ret[k])
-        if monitor:
-            for k in monitor:
-                all_monitor[k].append(monitor[k])
+        if ray_debug:
+            for k in ray_debug:
+                all_ray_debug[k].append(ray_debug[k])
 
     all_ret = {k : torch.cat(all_ret[k], 0) for k in all_ret}
-    if all_monitor:
-        all_monitor = {k : torch.cat(all_monitor[k], 0).reshape(H, W, -1).cpu() for k in all_monitor}
-    return all_ret, all_monitor
+    if all_ray_debug:
+        all_ray_debug = {k : torch.cat(all_ray_debug[k], 0).reshape(H, W, -1).cpu() for k in all_ray_debug}
+    return all_ret, all_ray_debug
 
 
 def render(H, W, focal_x, focal_y, chunk=1024*32, rays=None, c2w=None, ndc=True,
-                  near=0., far=1., frame_time=None, c2w_staticcam=None,
+                  near=0., far=1., frame_time=None, c2w_staticcam=None, ray_debug_path="",
                   **kwargs):
     """Calls methods to render the given rays.
 
@@ -192,18 +193,18 @@ def render(H, W, focal_x, focal_y, chunk=1024*32, rays=None, c2w=None, ndc=True,
         rays = torch.cat([rays, rays_depth], -1)        # [batch_size * 12] or [batch_size * 15]
 
     # Render and reshape
-    all_ret, all_monitor = batchify_rays(rays, chunk, H, W, **kwargs)      
+    all_ret, all_ray_debug = batchify_rays(rays, chunk, H, W, **kwargs)      
     for k in all_ret:
         k_sh = list(sh[:-1]) + list(all_ret[k].shape[1:])
         all_ret[k] = torch.reshape(all_ret[k], k_sh)
 
     # Rest is logging and packaging
-    if all_monitor:
-        all_monitor["c2w"] = c2w.cpu()
-        all_monitor["near"] = near[0, 0].item()
-        all_monitor["far"] = far[0, 0].item()
-        with open("monitor.pickle", "wb") as f:
-            pickle.dump(all_monitor, f, pickle.HIGHEST_PROTOCOL)
+    if all_ray_debug:
+        all_ray_debug["c2w"] = c2w.cpu()
+        all_ray_debug["near"] = near[0, 0].item()
+        all_ray_debug["far"] = far[0, 0].item()
+        with open(ray_debug_path + "ray_debug.pickle", "wb") as f:
+            pickle.dump(all_ray_debug, f, pickle.HIGHEST_PROTOCOL)
 
     k_extract = ['rgb_map', 'disp_map', 'acc_map', 'depth_map']
     ret_list = [all_ret[k] for k in k_extract]
@@ -469,7 +470,7 @@ def render_rays(ray_batch,
                 use_two_models_for_fine=False,
                 use_viewdirs=False,
                 use_depth_guided_sampling=False,
-                monitor_sampling=False):
+                debug_rays=False):
     """Performs volumetric rendering, i.e. computes a RGB images and depth map by querying the model in spatial
     locations along the given rays and computing the volume rendering integral.
 
@@ -530,27 +531,19 @@ def render_rays(ray_batch,
 
     if z_vals is None:      
         # create coarse integration locations along the rays
-        if use_depth_guided_sampling:
-            def comp_quadratic_samples(near, far, num_samples):
-                """normal parabola between 0.1 and 1, shifted and scaled to have y range between near and far"""
-                start = 0.1
-                x = torch.linspace(0, 1, num_samples)
-                c = near
-                a = (far - near)/(1. + 2. * start)
-                b = 2. * start * a
-                return a * x.pow(2) + b * x + c
-
-            z_coarse = comp_quadratic_samples(near, far, N_samples)
-            # compute a lower bound for the sampling standard deviation as the maximal distance between samples
-            lower_bound = z_coarse[0, -1] - z_coarse[0, -2]             # FIXME in Barbaras code is das hier ein tensor mit shape (64)
+        # if use_depth_guided_sampling:
+        #     z_coarse = comp_quadratic_samples(near, far, N_samples)
             
+        # else:
+        t_vals = torch.linspace(0., 1., steps=N_samples)
+        if not lindisp:
+            z_coarse = near * (1.-t_vals) + far * (t_vals)
         else:
-            t_vals = torch.linspace(0., 1., steps=N_samples)
-            if not lindisp:
-                z_coarse = near * (1.-t_vals) + far * (t_vals)
-            else:
-                z_coarse = 1./(1./near * (1.-t_vals) + 1./far * (t_vals))
-            z_coarse = z_coarse.expand([N_rays, N_samples])
+            z_coarse = 1./(1./near * (1.-t_vals) + 1./far * (t_vals))
+        z_coarse = z_coarse.expand([N_rays, N_samples])
+
+        # compute a lower bound for the sampling standard deviation as the maximal distance between samples
+        lower_bound = z_coarse[0, -1] - z_coarse[0, -2]             # FIXME in Barbaras code is das hier ein tensor mit shape (64)
 
         # Add stratified perturbations 
         z_coarse = stratified_samples(z_coarse, pytest=pytest) if perturb > 0. else z_coarse     
@@ -601,7 +594,7 @@ def render_rays(ray_batch,
                 z_vals_mid = .5 * (z_coarse[...,1:] + z_coarse[...,:-1])
                 z_fine = sample_pdf(z_vals_mid, weights[...,1:-1], N_importance, det=(perturb==0.), pytest=pytest)
                 z_fine = z_fine.detach()
-                z_vals, _ = torch.sort(torch.cat([z_coarse, z_fine], -1), -1) #TODO J: Habe z_vals zu z_coarse geändert -- denke da ist richtig
+                z_vals, _ = torch.sort(torch.cat([z_coarse, z_fine], -1), -1)
         else:
             z_vals = z_coarse
 
@@ -611,20 +604,20 @@ def render_rays(ray_batch,
     rgb_map, disp_map, acc_map, weights, depth_map, depth_std_map = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
 
     # Rest is logging and returning
-    monitor_dict = None
-    if monitor_sampling:
-        monitor_dict = {
+    ray_debug = None
+    if debug_rays:
+        ray_debug = {
             "rays_o": rays_o,
             "rays_d": rays_d,
             "rgb_map": rgb_map,
             "depth_map": depth_map,
         }
         if z_coarse is not None:
-            monitor_dict["z_coarse"] = z_coarse
+            ray_debug["z_coarse"] = z_coarse
         if z_fine is not None:
-            monitor_dict["z_fine"] = z_fine
+            ray_debug["z_fine"] = z_fine
         else:
-            monitor_dict["z_vals"] = z_vals
+            ray_debug["z_vals"] = z_vals
 
     ret = {
         'rgb_map': rgb_map,
@@ -657,7 +650,7 @@ def render_rays(ray_batch,
         if (torch.isnan(ret[k]).any() or torch.isinf(ret[k]).any()) and DEBUG:
             print(f"! [Numerical Error] {k} contains nan or inf.")
 
-    return ret, monitor_dict
+    return ret, ray_debug
 
 
 def config_parser():
@@ -835,6 +828,18 @@ def train():
         
         # No RGB-to-RGBA conversion needed
 
+    elif args.dataset_type == 'owndataset':
+        images, depth_maps, poses, times, render_poses, render_times, hwff, i_split = load_deepdeform_data(args.datadir, args.half_res, args.testskip, args.render_pose_type)
+        print(f"[Info] Loaded Own Dataset:\n\t\timages.shape: {images.shape}\n\t\trender_poses.shape: {render_poses.shape}\n\t\thwff: {hwff}\n\t\targs.datadir: {args.datadir}")
+        i_train, i_val, i_test = i_split
+        near = 0.1
+        far = np.max(depth_maps) + 0.1
+     
+        print(f"[Info] Setting near plane at distance {near} and far plane at distance {far}.")
+        
+        # No RGB-to-RGBA conversion needed
+
+
     else:
         print('[WARNING] Unknown dataset type: ', args.dataset_type, '. Exiting')
         return
@@ -868,14 +873,14 @@ def train():
     basedir = args.basedir
     expname = args.expname
     os.makedirs(os.path.join(basedir, expname), exist_ok=True)
-    f = os.path.join(basedir, expname, 'args.txt')
-    with open(f, 'w') as file:
-        for arg in sorted(vars(args)):
+    with open(os.path.join(basedir, expname, 'args.txt'), 'w') as file:
+        vars_dict = vars(args)
+        vars_dict["CUDA_VISIBLE_DEVICES"] = GPU_INDEX
+        for arg in sorted(vars_dict):
             attr = getattr(args, arg)
             file.write('{} = {}\n'.format(arg, attr))
     if args.config is not None:
-        f = os.path.join(basedir, expname, 'config.txt')
-        with open(f, 'w') as file:
+        with open(os.path.join(basedir, expname, 'config.txt'), 'w') as file:
             file.write(open(args.config, 'r').read())
 
     # Create nerf model
@@ -889,7 +894,6 @@ def train():
     }
     render_kwargs_train.update(bds_dict)
     render_kwargs_test.update(bds_dict)
-    render_kwargs_test["monitor_sampling"] = DEBUG       # FIXME
 
     # Move testing data to GPU
     render_poses = torch.Tensor(render_poses).to(device)
@@ -1016,25 +1020,9 @@ def train():
                 batch_rays = torch.stack([rays_o, rays_d], 0) # (2, N_rand, 3)
                 if comp_depth:
                     target_depth_s = target_depth[select_coords[:, 0], select_coords[:, 1]] # (N_rand, 1) 
-                    #target_depth_s = target_depth_s.squeeze()       # FIXME remove queeze  (N_rand, 1) or (N_rand, 1)
-                    target_stds = torch.full(target_depth.shape, 0.5)       #FIXME this is only for now
+                    target_stds = torch.full(target_depth.shape, 0.1)       #FIXME set a good std
                     target_stds_s = target_stds[select_coords[:, 0], select_coords[:, 1]]
                     if args.use_depth_guided_sampling:
-                        def comp_depth_sampling(depth, stds):
-                            """Computes ranges to sample depth locations from. 
-                            Min and max values are also computed for invalid depth values.
-
-                            Args:
-                                depth (torch.Tensor): [N_rand, 1]. Depth values.
-                                stds (torch.Tensor): [N_rand, 1]. Standard deviations.
-
-                            Returns:
-                                torch.Tensor: [N_rand, 3]. Sampling range (depth, depth_min, depth_max) for each ray.
-                            """
-                            depth_min = depth - 3. * stds   
-                            depth_max = depth + 3. * stds
-                            return torch.stack((depth, depth_min, depth_max), 1).squeeze()
-                            
                         depth_range = comp_depth_sampling(target_depth_s, target_stds_s)
                         batch_rays = torch.stack([rays_o, rays_d, depth_range], 0) # (3, N_rand, 3))
 
@@ -1178,18 +1166,24 @@ def train():
                 del depth_loss0
         del rgb, disp, acc, extras
 
-        # Validation
+        # Validate on a random image from the val set
         if i%args.i_img == 0:       
             torch.cuda.empty_cache()
             
             img_i=np.random.choice(i_val)
+            debug_rays = False
+            ray_debug_path = ""
+            if i%(5 * args.i_img) == 0 and DEBUG:       # every 5*i_img steps val on the same img
+                debug_rays = True
+                ray_debug_path = os.path.join(basedir, expname, f"step_{i:06d}_")
+                img_i = 0
             target = images[img_i]
-
+ 
             pose = poses[img_i, :3,:4]
             frame_time = times[img_i]
             with torch.no_grad():
-                rgb, disp, acc, depth, extras = render(H, W, focal_x, focal_y, chunk=args.chunk, c2w=pose, frame_time=frame_time,
-                                                    **render_kwargs_test)
+                rgb, disp, acc, depth, extras = render(H, W, focal_x, focal_y, chunk=args.chunk, c2w=pose, frame_time=frame_time, debug_rays=debug_rays,
+                                                    ray_debug_path=ray_debug_path, **render_kwargs_test)
 
             if depth_maps is not None:
                 target_depth = depth_maps[img_i].squeeze()
