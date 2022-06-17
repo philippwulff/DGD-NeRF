@@ -24,10 +24,11 @@ precrop_frac = 0.5
 half_res = True
 do_half_precision = False
 
+i_print=100
 i_img = 10000
 depth_loss_type = mse
-depth_loss_weight = 0.005
+depth_loss_weight = 0.01
 use_depth_guided_sampling=False
 
 no_reload = True
-render_pose_type = spiral
+render_pose_type = spherical

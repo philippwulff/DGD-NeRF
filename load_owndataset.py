@@ -15,7 +15,7 @@ from load_blender import trans_t, rot_phi, rot_theta
 
 #TODO: Set render_poses correct, maybe even test_poses
 
-SCENE_OBJECT_DEPTH = 1.5         # Distance to the main object of the scene in meters
+SCENE_OBJECT_DEPTH = 1.45         # Distance to the main object of the scene in meters
 
 def quat_and_trans_2_trans_matrix(Q):
     """
@@ -145,7 +145,7 @@ def extract_owndataset_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
             f_x = K_matrix[0]
             f_y = K_matrix[4]
 
-            #init_pose = metas["initPose"]
+            #init_pose = np.array(metas["initPose"]).astype(np.float32)
             #transform_matrix = quat_and_trans_2_trans_matrix(init_pose) #J: i think it is in m
             #transform_matrix[2, 3] = SCENE_OBJECT_DEPTH #FIXME J: To set training cam higher
 
@@ -155,13 +155,16 @@ def extract_owndataset_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
             poses = np.array(metas["poses"]).astype(np.float32)
             
             transform_matrix = np.zeros(shape=(len(splits["train"]+splits["val"]+splits["test"]),4,4))
+            R_z = np.array([[np.cos(np.pi), -np.sin(np.pi),0],[np.sin(np.pi), np.cos(np.pi), 0],[0,0,1]]).astype(np.float32)
             z=0
             k=[]
             for s in splits:
                 for i, frame in enumerate(splits[s]):
                     transform_matrix[z] = quat_and_trans_2_trans_matrix(poses[z])
-                    transform_matrix[z,2,3] = SCENE_OBJECT_DEPTH
+                    transform_matrix[z,2,3] += SCENE_OBJECT_DEPTH
+                    transform_matrix[z,:3,:3] = transform_matrix[z,:3,:3] @ R_z # Rotate every transform_matrix 18ß degree around z-axis
                     z += 1
+
     z=0
     for s in splits:
         rgb_dir = Path(f"./data/{scene_name}/{s}/")
@@ -290,7 +293,7 @@ def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="
     else:
 
         if render_pose_type == "spherical":
-            render_poses = torch.stack([pose_spherical2(0, angle, SCENE_OBJECT_DEPTH) for angle in np.linspace(-20,20,120+1)], 0)       # changed from (-180,180,40+1)
+            render_poses = torch.stack([pose_spherical2(0, angle, SCENE_OBJECT_DEPTH) for angle in np.linspace(0,90,120)], 0)       # changed from (-180,180,40+1)
         elif render_pose_type == "spiral": 
             render_poses = torch.stack([pose_spiral(angle, z_cam_dist, SCENE_OBJECT_DEPTH, H, W) for angle, z_cam_dist in              
                                         zip(np.linspace(0, 2*360, 120), np.linspace(0, -SCENE_OBJECT_DEPTH, 120))], 0)

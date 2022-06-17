@@ -13,6 +13,7 @@ from run_dnerf_helpers import *
 
 from load_blender import load_blender_data
 from load_deepdeform import load_deepdeform_data
+from load_owndataset import load_owndataset_data
 
 try:
     from apex import amp            
@@ -829,7 +830,7 @@ def train():
         # No RGB-to-RGBA conversion needed
 
     elif args.dataset_type == 'owndataset':
-        images, depth_maps, poses, times, render_poses, render_times, hwff, i_split = load_deepdeform_data(args.datadir, args.half_res, args.testskip, args.render_pose_type)
+        images, depth_maps, poses, times, render_poses, render_times, hwff, i_split = load_owndataset_data(args.datadir, args.half_res, args.testskip, args.render_pose_type)
         print(f"[Info] Loaded Own Dataset:\n\t\timages.shape: {images.shape}\n\t\trender_poses.shape: {render_poses.shape}\n\t\thwff: {hwff}\n\t\targs.datadir: {args.datadir}")
         i_train, i_val, i_test = i_split
         near = 0.1
