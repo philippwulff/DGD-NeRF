@@ -1,4 +1,4 @@
-expname = human_06_mse
+expname = human_08_mse_003
 basedir = ./logs
 datadir = ./data/human
 dataset_type = deepdeform           
@@ -26,7 +26,7 @@ do_half_precision = False
 
 i_img = 10000
 depth_loss_type = mse
-depth_loss_weight = 0.01
+depth_loss_weight = 0.03
 use_depth_guided_sampling=False
 
 no_reload = True

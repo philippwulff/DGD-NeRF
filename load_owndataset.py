@@ -119,24 +119,26 @@ def extract_owndataset_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
         val_p (float, optional): Validation set fraction. Defaults to 0.15.
         test_p (float, optional): Test set fraction. Defaults to 0.15.
     """
+    def get_number_only(elem):
+        if len(elem)==5:
+            i = elem[:1]
+            num_str = "".join(["0" for _ in range(0, 3-len(str(i)))]) + str(i)
+            return num_str
+        if len(elem)==6:
+            i = elem[:2]
+            num_str = "".join(["0" for _ in range(0, 3-len(str(i)))]) + str(i)
+            return num_str
+        if len(elem)==7:
+            i = elem[:3]
+            num_str = "".join(["0" for _ in range(0, 3-len(str(i)))]) + str(i)
+            return num_str
 
-    rgb_paths = sorted(os.listdir(os.path.join(datadir, "color")))[start_frame_i:end_frame_i:step]
-    depth_paths = sorted(os.listdir(os.path.join(datadir, "depth")))[start_frame_i:end_frame_i:step]
+    rgb_paths = sorted(os.listdir(os.path.join(datadir, "color")), key=get_number_only)[start_frame_i:end_frame_i:step]
+    depth_paths = sorted(os.listdir(os.path.join(datadir, "depth")), key=get_number_only)[start_frame_i:end_frame_i:step]
     if not end_frame_i:
         end_frame_i = len(rgb_paths) - 1
     assert len(rgb_paths) == len(depth_paths), "Unequal number of RGB and depth frames."
 
-    frames = [{"rgb": os.path.join(datadir, "color", rgb), "d": os.path.join(datadir, "depth", d), "t": t} 
-                    for rgb, d, t in zip(rgb_paths, depth_paths, np.linspace(0, 1, len(rgb_paths)))]
-    np.random.shuffle(frames)
-
-    # Create train-val-test splits from shuffled frames and then sort by time
-    splits = {
-        "train": sorted(frames[:int(len(frames)*train_p)], key=lambda x: x["t"]), 
-        "val": sorted(frames[int(len(frames)*train_p):int(len(frames)*(train_p+val_p))], key=lambda x: x["t"]), 
-        "test": sorted(frames[int(len(frames)*(train_p+val_p)):], key=lambda x: x["t"]),
-    }
-    print(f"Creating {int(train_p*100)}-{int(val_p*100)}-{int(test_p*100)}-Split with {len(splits['train'])}-{len(splits['val'])}-{len(splits['test'])} images.")
 
     with open("data/EXR_RGBD" + "/metadata.json", "r") as f:
             metas = json.load(f)
@@ -148,24 +150,30 @@ def extract_owndataset_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
             #init_pose = np.array(metas["initPose"]).astype(np.float32)
             #transform_matrix = quat_and_trans_2_trans_matrix(init_pose) #J: i think it is in m
             #transform_matrix[2, 3] = SCENE_OBJECT_DEPTH #FIXME J: To set training cam higher
-
-            init_pose = np.identity(4)
-            init_pose[2,3] = 1
             
             poses = np.array(metas["poses"]).astype(np.float32)
             
-            transform_matrix = np.zeros(shape=(len(splits["train"]+splits["val"]+splits["test"]),4,4))
+            transform_matrix = np.zeros(shape=(len(poses),4,4))
             R_z = np.array([[np.cos(np.pi), -np.sin(np.pi),0],[np.sin(np.pi), np.cos(np.pi), 0],[0,0,1]]).astype(np.float32)
-            z=0
-            k=[]
-            for s in splits:
-                for i, frame in enumerate(splits[s]):
-                    transform_matrix[z] = quat_and_trans_2_trans_matrix(poses[z])
-                    transform_matrix[z,2,3] += SCENE_OBJECT_DEPTH
-                    transform_matrix[z,:3,:3] = transform_matrix[z,:3,:3] @ R_z # Rotate every transform_matrix 18ß degree around z-axis
-                    z += 1
+            
+            for z in range(len(poses)):
+                transform_matrix[z] = quat_and_trans_2_trans_matrix(poses[z])
+                transform_matrix[z,2,3] += SCENE_OBJECT_DEPTH
+                transform_matrix[z,:3,:3] = transform_matrix[z,:3,:3] @ R_z # Rotate every transform_matrix 18ß degree around z-axis
 
-    z=0
+    frames = [{"rgb": os.path.join(datadir, "color", rgb), "d": os.path.join(datadir, "depth", d), "t": t, "transform_matrix": transform_matrix} 
+                    for rgb, d, t, transform_matrix in zip(rgb_paths, depth_paths, np.linspace(0, 1, len(rgb_paths)), transform_matrix)]
+    np.random.shuffle(frames)
+
+    # Create train-val-test splits from shuffled frames and then sort by time
+    splits = {
+        "train": sorted(frames[:int(len(frames)*train_p)], key=lambda x: x["t"]), 
+        "val": sorted(frames[int(len(frames)*train_p):int(len(frames)*(train_p+val_p))], key=lambda x: x["t"]), 
+        "test": sorted(frames[int(len(frames)*(train_p+val_p)):], key=lambda x: x["t"]),
+    }
+    print(f"Creating {int(train_p*100)}-{int(val_p*100)}-{int(test_p*100)}-Split with {len(splits['train'])}-{len(splits['val'])}-{len(splits['test'])} images.")
+
+
     for s in splits:
         rgb_dir = Path(f"./data/{scene_name}/{s}/")
         d_dir = Path(f"./data/{scene_name}/{s}_depth/")
@@ -188,10 +196,9 @@ def extract_owndataset_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
                 "depth_file_path": f"./{s}_depth/d_{num_str}",      # without .png
                 "rotation": 0,
                 "time": frame["t"],
-                "transform_matrix": transform_matrix[z].tolist(),        # Use the indentity for now
+                "transform_matrix": frame["transform_matrix"].tolist(),        # Use the indentity for now
             }
             transforms["frames"].append(frame_info)
-            z+=1
         
         with open(os.path.join(f"./data/{scene_name}", f"transforms_{s}.json"), "w", encoding='utf-8') as f:
             json.dump(transforms, f, ensure_ascii=False, indent=4)

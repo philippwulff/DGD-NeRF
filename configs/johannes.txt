@@ -1,4 +1,4 @@
-expname = johannes_01_test_data_loading 
+expname = johannes_02_test_data_loading 
 basedir = ./logs
 datadir = ./data/johannes
 dataset_type = owndataset           

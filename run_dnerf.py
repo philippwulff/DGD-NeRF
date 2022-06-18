@@ -24,7 +24,7 @@ import torch.nn as nn
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")           
 if device.type == "cuda":
-    GPU_INDEX = os.environ['CUDA_VISIBLE_DEVICES']
+    GPU_INDEX = os.environ.get('CUDA_VISIBLE_DEVICES', "None")
     print(f"[Info] Using CUDA version {torch.version.cuda} on {torch.cuda.get_device_name(device.index).strip()} with global GPU index {GPU_INDEX}")
 
 torch.manual_seed(0)
@@ -797,7 +797,7 @@ def train():
     parser = config_parser()
     args = parser.parse_args()
 
-    # Load data
+    #################### Load data ####################
 
     if args.dataset_type == 'blender':
         images, poses, times, render_poses, render_times, hwf, i_split = load_blender_data(args.datadir, args.half_res, args.testskip)
@@ -840,7 +840,6 @@ def train():
         
         # No RGB-to-RGBA conversion needed
 
-
     else:
         print('[WARNING] Unknown dataset type: ', args.dataset_type, '. Exiting')
         return
@@ -860,6 +859,8 @@ def train():
     if depth_maps is None and comp_depth:
         print("[WARNING] No depth maps loaded. Cannot apply depth loss. Exiting.")
         return
+
+    #################### Set up training ####################
 
     # Cast intrinsics to right types
     H, W, focal_x, focal_y = hwff
@@ -1070,7 +1071,6 @@ def train():
 
         depth_loss = 0
         if args.depth_loss_weight > 0:
-            # MSE loss over valid pixels
             if args.depth_loss_type == "mse":
                 depth_loss = depth2mse(depth, target_depth_s.squeeze())
             elif args.depth_loss_type == "gnll":
@@ -1080,7 +1080,6 @@ def train():
         loss = img_loss + tv_loss + args.depth_loss_weight * depth_loss 
 
         psnr = mse2psnr(img_loss)
-        #FIXME J: psnr = mse2psnr((img_loss+depth_loss))
 
         if 'rgb0' in extras:
             img_loss0 = img2mse(extras['rgb0'], target_s)
@@ -1090,7 +1089,6 @@ def train():
             loss0 = img_loss0 + args.depth_loss_weight * depth_loss0
             loss += loss0
             psnr0 = mse2psnr(img_loss0)
-            #FIXME J: psnr0 = mse2psnr((img_loss0 + depth_loss0))
 
         if args.do_half_precision:
             with amp.scale_loss(loss, optimizer) as scaled_loss:
@@ -1100,21 +1098,19 @@ def train():
 
         optimizer.step()
 
+        ############################ update learning rate ############################
         # NOTE: IMPORTANT!
-        ###   update learning rate   ###
+
         decay_rate = 0.1
         decay_steps = args.lrate_decay * 1000
         new_lrate = args.lrate * (decay_rate ** (global_step / decay_steps))
         for param_group in optimizer.param_groups:
             param_group['lr'] = new_lrate
-            
-        ################################
+
+        ############################ LOGGING ################################
 
         dt = time.time()-time0
         # print(f"Step: {global_step}, Loss: {loss}, Time: {dt}")
-        #####           end            #####
-
-        ############################ LOGGING ################################
 
         # Save network weights checkpoint
         if i%args.i_weights == 0:       
