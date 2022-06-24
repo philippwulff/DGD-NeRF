@@ -208,7 +208,6 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1, render_pose_type="
 
     # set the (novel) poses that are used to render novel views. Take them from the file, if given, else compute them from a sphere.
     if os.path.exists(os.path.join(basedir, 'transforms_{}.json'.format('render'))):
-
         with open(os.path.join(basedir, 'transforms_{}.json'.format('render')), 'r') as fp:
             meta = json.load(fp)
         render_poses = []

@@ -79,6 +79,23 @@ def pose_spherical(theta, phi, radius):
     return c2w
 
 
+def pose_spherical2(theta, phi, radius):
+    """Computes rotation matrix from spherical coordinates.
+
+    Args:
+        theta (float): Rotation about the Y-axis in the negative direction.
+        phi (float): Rotation about the X-axis.
+        radius (float): Translation in the radial direction.
+
+    Returns:
+        c2w: 4x4 Tensor. The camera-to-world homogeneous transformation matrix.
+    """
+    c2w = trans_t(radius)
+    c2w = rot_phi(phi/180.*np.pi) @ c2w
+    c2w = rot_theta(theta/180.*np.pi) @ c2w
+    return c2w
+
+
 def load_blender_data(basedir, half_res=False, testskip=1):
     """Loads the synthetic blender dataset.
     Args:
