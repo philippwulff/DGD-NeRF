@@ -290,11 +290,19 @@ def create_nerf(args):
     # output_ch only changes the net architecture if use_viewdirs is
     output_ch = 5 if args.N_importance > 0 else 4                   # TODO warum 5??? RGB + density???
     skips = [4]
-    model = NeRF.get_by_name(args.nerf_type, D=args.netdepth, W=args.netwidth,
-                 input_ch=input_ch, output_ch=output_ch, skips=skips,
-                 input_ch_views=input_ch_views, input_ch_time=input_ch_time,
-                 use_viewdirs=args.use_viewdirs, embed_fn=embed_fn,
-                 zero_canonical=not args.not_zero_canonical).to(device)
+    model = NeRF.get_by_name(
+        args.nerf_type, 
+        D=args.netdepth, 
+        W=args.netwidth,
+        input_ch=input_ch, 
+        output_ch=output_ch, 
+        skips=skips,
+        input_ch_views=input_ch_views, 
+        input_ch_time=input_ch_time,                    # TODO P: als info: das ray-bending network wird hier eingebaut
+        use_viewdirs=args.use_viewdirs, 
+        embed_fn=embed_fn,
+        zero_canonical=not args.not_zero_canonical
+    ).to(device)
     grad_vars = list(model.parameters())
 
     model_fine = None
@@ -305,13 +313,14 @@ def create_nerf(args):
                           use_viewdirs=args.use_viewdirs, embed_fn=embed_fn,
                           zero_canonical=not args.not_zero_canonical).to(device)
         grad_vars += list(model_fine.parameters())
-
-    network_query_fn = lambda inputs, viewdirs, ts, network_fn : run_network(inputs, viewdirs, ts, network_fn,
-                                                                embed_fn=embed_fn,
-                                                                embeddirs_fn=embeddirs_fn,
-                                                                embedtime_fn=embedtime_fn,
-                                                                netchunk=args.netchunk,
-                                                                embd_time_discr=args.nerf_type!="temporal")
+        
+    def network_query_fn(inputs, viewdirs, ts, network_fn): return run_network(inputs, viewdirs, ts, network_fn,
+                                                                               embed_fn=embed_fn,
+                                                                               embeddirs_fn=embeddirs_fn,
+                                                                               embedtime_fn=embedtime_fn,
+                                                                               netchunk=args.netchunk,
+                                                                               embd_time_discr=args.nerf_type != "temporal"
+                                                                               )
 
     # Create optimizer
     optimizer = torch.optim.Adam(params=grad_vars, lr=args.lrate, betas=(0.9, 0.999))
