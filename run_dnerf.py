@@ -1147,7 +1147,7 @@ def train():
                 scaled_loss.backward()
         else:
             loss.backward()
-
+        nn.utils.clip_grad_value_(grad_vars, 0.1)
         optimizer.step()
 
         ############################ update learning rate ############################

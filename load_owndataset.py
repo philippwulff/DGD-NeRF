@@ -16,6 +16,7 @@ from load_blender import trans_t, rot_phi, rot_theta
 #TODO: Set render_poses correct, maybe even test_poses
 
 SCENE_OBJECT_DEPTH = 1.45         # Distance to the main object of the scene in meters
+FPS = 15
 
 def quat_and_trans_2_trans_matrix(Q):
     """
@@ -135,8 +136,8 @@ def extract_owndataset_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
 
     rgb_paths = sorted(os.listdir(os.path.join(datadir, "color")), key=get_number_only)[start_frame_i:end_frame_i:step]
     depth_paths = sorted(os.listdir(os.path.join(datadir, "depth")), key=get_number_only)[start_frame_i:end_frame_i:step]
-    rgb_paths = rgb_paths[::4]          # Control fps --> original 60fps, reduced to 15fps
-    depth_paths = depth_paths[::4]      # Control fps --> original 60fps, reduced to 15fps
+    rgb_paths = rgb_paths[::int(60/FPS)]          # Control fps --> original 60fps, reduced to 15fps
+    depth_paths = depth_paths[::int(60/FPS)]      # Control fps --> original 60fps, reduced to 15fps
     if not end_frame_i:
         end_frame_i = len(rgb_paths) - 1
     assert len(rgb_paths) == len(depth_paths), "Unequal number of RGB and depth frames."
@@ -154,6 +155,7 @@ def extract_owndataset_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
             #transform_matrix[2, 3] = SCENE_OBJECT_DEPTH #FIXME J: To set training cam higher
             
             poses = np.array(metas["poses"]).astype(np.float32)
+            poses = poses[::int(60/FPS)]
             
             transform_matrix = np.zeros(shape=(len(poses),4,4))
             R_z = np.array([[np.cos(np.pi), -np.sin(np.pi),0],[np.sin(np.pi), np.cos(np.pi), 0],[0,0,1]]).astype(np.float32)
