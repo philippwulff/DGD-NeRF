@@ -182,9 +182,9 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1, render_pose_type="
 
         imgs = (np.array(imgs) / 255.).astype(np.float32)  # .jpg has 3 channels -> RGB
         depth_maps = (np.array(depth_maps)).astype(np.float32)  
-        depth_maps /= np.max(depth_maps)            # convert mm to ?
+        depth_maps /= np.max(depth_maps) * 0.5       # convert depth from mm to [0, 2]
         poses = (np.array(poses)).astype(np.float32)
-        poses[:, 0:3, 3] = poses[:, 0:3, 3] / np.max(depth_maps)         # convert mm to ?
+        poses[:, 0:3, 3] = poses[:, 0:3, 3] / SCENE_OBJECT_DEPTH    # convert x,y,z from mm to [-1,1]
         times = np.array(times).astype(np.float32)
         counts.append(counts[-1] + imgs.shape[0])
         all_imgs.append(imgs)
@@ -218,10 +218,10 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1, render_pose_type="
 
     else:
         if render_pose_type == "spherical":
-            render_poses = torch.stack([pose_spherical2(0, angle, SCENE_OBJECT_DEPTH) for angle in np.linspace(-20,20,120+1)], 0)       # changed from (-180,180,40+1)
+            render_poses = torch.stack([pose_spherical2(0, angle, 1) for angle in np.linspace(-20,20,120+1)], 0)       # changed from (-180,180,40+1)
         elif render_pose_type == "spiral": 
-            render_poses = torch.stack([pose_spiral(angle, z_cam_dist, SCENE_OBJECT_DEPTH*1000/255, H, W) for angle, z_cam_dist in              
-                                        zip(np.linspace(0, 2*360, 120), np.linspace(0, -500/255*SCENE_OBJECT_DEPTH, 120))], 0)
+            render_poses = torch.stack([pose_spiral(angle, z_cam_dist, 1, H, W) for angle, z_cam_dist in              
+                                        zip(np.linspace(0, 2*360, 120), np.linspace(0, -0.5, 120))], 0)
 
     render_times = torch.linspace(0., 1., render_poses.shape[0])
     
