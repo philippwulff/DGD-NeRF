@@ -10,11 +10,7 @@ from collections import defaultdict
 
 
 from run_dnerf_helpers import *
-from utils import load_blender, load_deepdeform, load_owndataset
-
-from load_blender import load_blender_data
-from load_deepdeform import load_deepdeform_data
-from load_owndataset import load_owndataset_data
+from utils import load_blender_data, load_deepdeform_data, load_owndataset_data
 
 try:
     from apex import amp            
