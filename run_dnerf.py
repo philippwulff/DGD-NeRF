@@ -1093,7 +1093,6 @@ def train():
         disp.to(device)
         acc.to(device)
         depth.to(device)
-        extras.to(device)
 
         if args.add_tv_loss:
             frame_time_prev = times[img_i - 1] if img_i > 0 else None

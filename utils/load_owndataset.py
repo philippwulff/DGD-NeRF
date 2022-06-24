@@ -11,7 +11,7 @@ import math
 import OpenEXR as exr
 import Imath
 
-from load_blender import trans_t, rot_phi, rot_theta
+from utils.load_blender import trans_t, rot_phi, rot_theta
 
 #TODO: Set render_poses correct, maybe even test_poses
 

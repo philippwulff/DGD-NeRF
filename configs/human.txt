@@ -1,4 +1,4 @@
-expname = human_13_mse_255_scaling
+expname = human_15_mse_m1_to_1
 basedir = ./logs
 datadir = ./data/human
 dataset_type = deepdeform           

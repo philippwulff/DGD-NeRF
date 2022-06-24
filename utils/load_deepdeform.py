@@ -9,10 +9,10 @@ import torch.nn.functional as F
 import cv2
 import math
 
-from load_blender import trans_t, rot_phi, rot_theta
+from utils.load_blender import trans_t, rot_phi, rot_theta
 
 
-SCENE_OBJECT_DEPTH = 2         # Distance to the main object of the scene in meters
+SCENE_OBJECT_DEPTH = 1.5         # Distance to the main object of the scene in meters
 
 def pose_spherical2(alpha, beta, radius):
     """Computes camera poses on a sphere around the world coordinate origin without spherical coordinates.
@@ -184,7 +184,7 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1, render_pose_type="
         depth_maps = (np.array(depth_maps)).astype(np.float32)  
         depth_maps /= np.max(depth_maps) * 0.5       # convert depth from mm to [0, 2]
         poses = (np.array(poses)).astype(np.float32)
-        poses[:, 0:3, 3] = poses[:, 0:3, 3] / SCENE_OBJECT_DEPTH    # convert x,y,z from mm to [-1,1]
+        poses[:, 0:3, 3] = poses[:, 0:3, 3] / (SCENE_OBJECT_DEPTH*1000)    # convert x,y,z from mm to [-1,1]
         times = np.array(times).astype(np.float32)
         counts.append(counts[-1] + imgs.shape[0])
         all_imgs.append(imgs)
