@@ -135,6 +135,8 @@ def extract_owndataset_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
 
     rgb_paths = sorted(os.listdir(os.path.join(datadir, "color")), key=get_number_only)[start_frame_i:end_frame_i:step]
     depth_paths = sorted(os.listdir(os.path.join(datadir, "depth")), key=get_number_only)[start_frame_i:end_frame_i:step]
+    rgb_paths = rgb_paths[::4]          # Control fps --> original 60fps, reduced to 15fps
+    depth_paths = depth_paths[::4]      # Control fps --> original 60fps, reduced to 15fps
     if not end_frame_i:
         end_frame_i = len(rgb_paths) - 1
     assert len(rgb_paths) == len(depth_paths), "Unequal number of RGB and depth frames."
@@ -159,7 +161,7 @@ def extract_owndataset_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
             for z in range(len(poses)):
                 transform_matrix[z] = quat_and_trans_2_trans_matrix(poses[z])
                 transform_matrix[z,2,3] += SCENE_OBJECT_DEPTH
-                transform_matrix[z,:3,:3] = transform_matrix[z,:3,:3] @ R_z # Rotate every transform_matrix 18ß degree around z-axis
+                transform_matrix[z,:3,:3] = transform_matrix[z,:3,:3] @ R_z # Rotate every transform_matrix 180 degree around z-axis
 
     frames = [{"rgb": os.path.join(datadir, "color", rgb), "d": os.path.join(datadir, "depth", d), "t": t, "transform_matrix": transform_matrix} 
                     for rgb, d, t, transform_matrix in zip(rgb_paths, depth_paths, np.linspace(0, 1, len(rgb_paths)), transform_matrix)]
@@ -174,34 +176,34 @@ def extract_owndataset_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
     print(f"Creating {int(train_p*100)}-{int(val_p*100)}-{int(test_p*100)}-Split with {len(splits['train'])}-{len(splits['val'])}-{len(splits['test'])} images.")
 
 
-    for s in splits:
-        rgb_dir = Path(f"./data/{scene_name}/{s}/")
-        d_dir = Path(f"./data/{scene_name}/{s}_depth/")
-        rgb_dir.mkdir(parents=True, exist_ok=True)
-        d_dir.mkdir(exist_ok=True)
-        transforms = {
-            "camera_angle_x": 2 * np.arctan(680/(2*f_x)),        # AOV in x dimension; height and width are fixed in DeepDeform
-            "camera_angle_y": 2 * np.arctan(480/(2*f_y)),        # AOV in y dimension
-            "SCENE_OBJECT_DEPTH_at_extraction": SCENE_OBJECT_DEPTH,
-            "frames": []
-        }
-        for i, frame in enumerate(splits[s]):
-            # Copy RGB and depth files
-            num_str = "".join(["0" for _ in range(0, 3-len(str(i)))]) + str(i)
-            shutil.copyfile(frame["rgb"],  f"{rgb_dir}/rgb_{num_str}.jpg")
-            shutil.copyfile(frame["d"], f"{d_dir}/d_{num_str}.exr")
-            # Add transform and time info
-            frame_info = {
-                "file_path": f"./{s}/rgb_{num_str}",                # without .jpg
-                "depth_file_path": f"./{s}_depth/d_{num_str}",      # without .png
-                "rotation": 0,
-                "time": frame["t"],
-                "transform_matrix": frame["transform_matrix"].tolist(),        # Use the indentity for now
+    for i,s in enumerate(splits):
+            rgb_dir = Path(f"./data/{scene_name}/{s}/")
+            d_dir = Path(f"./data/{scene_name}/{s}_depth/")
+            rgb_dir.mkdir(parents=True, exist_ok=True)
+            d_dir.mkdir(exist_ok=True)
+            transforms = {
+                "camera_angle_x": 2 * np.arctan(680/(2*f_x)),        # AOV in x dimension; height and width are fixed in DeepDeform
+                "camera_angle_y": 2 * np.arctan(480/(2*f_y)),        # AOV in y dimension
+                "SCENE_OBJECT_DEPTH_at_extraction": SCENE_OBJECT_DEPTH,
+                "frames": []
             }
-            transforms["frames"].append(frame_info)
-        
-        with open(os.path.join(f"./data/{scene_name}", f"transforms_{s}.json"), "w", encoding='utf-8') as f:
-            json.dump(transforms, f, ensure_ascii=False, indent=4)
+            for i, frame in enumerate(splits[s]):
+                # Copy RGB and depth files
+                num_str = "".join(["0" for _ in range(0, 3-len(str(i)))]) + str(i)
+                shutil.copyfile(frame["rgb"],  f"{rgb_dir}/rgb_{num_str}.jpg")
+                shutil.copyfile(frame["d"], f"{d_dir}/d_{num_str}.exr")
+                # Add transform and time info
+                frame_info = {
+                    "file_path": f"./{s}/rgb_{num_str}",                # without .jpg
+                    "depth_file_path": f"./{s}_depth/d_{num_str}",      # without .png
+                    "rotation": 0,
+                    "time": frame["t"],
+                    "transform_matrix": frame["transform_matrix"].tolist(),        # Use the indentity for now
+                }
+                transforms["frames"].append(frame_info)
+            
+            with open(os.path.join(f"./data/{scene_name}", f"transforms_{s}.json"), "w", encoding='utf-8') as f:
+                json.dump(transforms, f, ensure_ascii=False, indent=4)
 
 
 def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="spherical"):
@@ -330,7 +332,7 @@ if __name__ == "__main__":
     # extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq120", "office")
     # extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq045", "human", end_frame_i=200)
     # extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq150", "bag")
-    extract_owndataset_data("data/EXR_RGBD", "johannes")
+    extract_owndataset_data("data/EXR_RGBD", "johannes_2")
     #exit(0)
 
     # print("DEBUGGING")

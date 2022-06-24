@@ -12,7 +12,7 @@ import math
 from load_blender import trans_t, rot_phi, rot_theta
 
 
-SCENE_OBJECT_DEPTH = 1.5         # Distance to the main object of the scene in meters
+SCENE_OBJECT_DEPTH = 2         # Distance to the main object of the scene in meters
 
 def pose_spherical2(alpha, beta, radius):
     """Computes camera poses on a sphere around the world coordinate origin without spherical coordinates.
@@ -55,7 +55,7 @@ def pose_spiral(theta, z_cam, z_cam_glob, H, W):
     beta = np.arctan(x_w/z_w) * 180/np.pi      # rotation about Y_global
     radius = np.sqrt(x_w**2 + y_w**2 + z_w**2)
     c2w = pose_spherical2(alpha, beta, radius)
-    return c2w#, (x_w, y_w, z_w)
+    return c2w
 
 
 def extract_deepdeform_data(datadir, scene_name, start_frame_i=0, end_frame_i=None, step=1, train_p=0.7, val_p=0.15, test_p=0.15):
@@ -180,13 +180,10 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1, render_pose_type="
             cur_time = frame['time'] if 'time' in frame else float(t) / (len(meta['frames'][::skip])-1)
             times.append(cur_time)
 
-        # DeepDeform does not have multiple views at t=0
-        # assert times[0] == 0, "Time must start at 0"
-
         imgs = (np.array(imgs) / 255.).astype(np.float32)  # .jpg has 3 channels -> RGB
-        depth_maps = (np.array(depth_maps) / 1000.).astype(np.float32)  # convert mm to m
+        depth_maps = (np.array(depth_maps) / 255.).astype(np.float32)  # convert mm to m
         poses = (np.array(poses)).astype(np.float32)
-        poses[:, 0:3, 3] = poses[:, 0:3, 3] / 1000.         # convert mm to m
+        poses[:, 0:3, 3] = poses[:, 0:3, 3] / 255.         # convert mm to m
         times = np.array(times).astype(np.float32)
         counts.append(counts[-1] + imgs.shape[0])
         all_imgs.append(imgs)
@@ -206,7 +203,7 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1, render_pose_type="
     H, W = imgs[0].shape[:2]
     camera_angle_x = float(meta['camera_angle_x'])      # horizontal AOV
     camera_angle_y = float(meta['camera_angle_y'])      # horizontal AOV
-    focal_x = .5 * W / np.tan(.5 * camera_angle_x)        # focal length
+    focal_x = .5 * W / np.tan(.5 * camera_angle_x)      # focal length
     focal_y = .5 * W / np.tan(.5 * camera_angle_y)
 
     # set the (novel) poses that are used to render novel views. Take them from the file, if given, else compute them from a sphere.
@@ -220,12 +217,11 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1, render_pose_type="
         render_poses = np.array(render_poses).astype(np.float32)
 
     else:
-
         if render_pose_type == "spherical":
             render_poses = torch.stack([pose_spherical2(0, angle, SCENE_OBJECT_DEPTH) for angle in np.linspace(-20,20,120+1)], 0)       # changed from (-180,180,40+1)
         elif render_pose_type == "spiral": 
-            render_poses = torch.stack([pose_spiral(angle, z_cam_dist, SCENE_OBJECT_DEPTH, H, W) for angle, z_cam_dist in              
-                                        zip(np.linspace(0, 2*360, 120), np.linspace(0, -SCENE_OBJECT_DEPTH, 120))], 0)
+            render_poses = torch.stack([pose_spiral(angle, z_cam_dist, SCENE_OBJECT_DEPTH*1000/255, H, W) for angle, z_cam_dist in              
+                                        zip(np.linspace(0, 2*360, 120), np.linspace(0, -500/255*SCENE_OBJECT_DEPTH, 120))], 0)
 
     render_times = torch.linspace(0., 1., render_poses.shape[0])
     
@@ -244,7 +240,7 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1, render_pose_type="
         depth_maps = depth_maps_half_res
         # imgs = tf.image.resize_area(imgs, [400, 400]).numpy()
 
-    return imgs, depth_maps, poses, times, render_poses, render_times, [H, W, focal_x, focal_y], i_split #FIXME J: depth_maps/1000
+    return imgs, depth_maps, poses, times, render_poses, render_times, [H, W, focal_x, focal_y], i_split
 
 
 if __name__ == "__main__":

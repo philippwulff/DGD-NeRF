@@ -1,4 +1,4 @@
-expname = johannes_02_test_data_loading 
+expname = johannes_03_test_data_loading_viewdir_true
 basedir = ./logs
 datadir = ./data/johannes
 dataset_type = owndataset           
@@ -7,7 +7,7 @@ nerf_type = direct_temporal
 no_batching = True
 not_zero_canonical = False
 
-use_viewdirs = False
+use_viewdirs = True
 white_bkgd = False
 lrate_decay = 500
 

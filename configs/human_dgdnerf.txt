@@ -1,4 +1,4 @@
-expname = human_07_mse_dgs
+expname = human_14_mse_dgs_255
 basedir = ./logs
 datadir = ./data/human
 dataset_type = deepdeform           
@@ -9,7 +9,7 @@ not_zero_canonical = False
 
 use_depth_guided_sampling = True
 depth_loss_type = mse
-depth_loss_weight = 0.005
+depth_loss_weight = 0.02
 
 use_viewdirs = False
 white_bkgd = False

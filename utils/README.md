@@ -1,12 +1,23 @@
-# TMUX
+# Useful Commands on the Server
 
-# Cuda
+### Git
+
+
+### Tmux
+
+Find all commands in the [Cheat Sheet](https://tmuxcheatsheet.com).
+
+### Cuda
 
 Check GPU usage: `nvidia-smi`
 
-Find user who is running a process with some PID, e.g. 1234: `ps -u -p 1234`
-### Killing processes on the GPU
+Get user who is running a process by its PID, e.g. 1234: `ps -u -p 1234`
 
-Replace `$PID` with the PID shown in `nivida-smi` and then type
+Kill a process on the GPU given some PID, e.g. 1234: 
+`nvidia-smi | grep 'python' | awk '{ print 1234 }' | xargs -n1 kill -9`
 
-`nvidia-smi | grep 'python' | awk '{ print $PID }' | xargs -n1 kill -9`
+Change to another GPU, e.g. on index 15: `export CUDA_VISIBLE_DEVICES=15`
+
+
+
+

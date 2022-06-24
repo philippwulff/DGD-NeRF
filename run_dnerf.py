@@ -340,7 +340,7 @@ def create_nerf(args):
     else:
         print("[Info] Found no ckpts")
 
-    if len(ckpts) > 0 and not args.no_reload:
+    if len(ckpts) > 0 and (not args.no_reload or args.render_only):
         ckpt_path = ckpts[-1]
         print('[Info] Reloading from', ckpt_path)
         ckpt = torch.load(ckpt_path, map_location=device)       # will map storages to the given device
@@ -529,6 +529,58 @@ def render_rays(ray_batch,
     else:
         if ray_batch.shape[-1] > 9:
             depth_range = ray_batch[:, 9:12]
+
+    ############# TEMPORARY
+
+    # if z_vals is None:
+    #     t_vals = torch.linspace(0., 1., steps=N_samples)
+    #     if not lindisp:
+    #         z_vals = near * (1.-t_vals) + far * (t_vals)
+    #     else:
+    #         z_vals = 1./(1./near * (1.-t_vals) + 1./far * (t_vals))
+
+    #     z_vals = z_vals.expand([N_rays, N_samples])
+
+    #     if perturb > 0.:
+    #         # get intervals between samples
+    #         mids = .5 * (z_vals[...,1:] + z_vals[...,:-1])
+    #         upper = torch.cat([mids, z_vals[...,-1:]], -1)
+    #         lower = torch.cat([z_vals[...,:1], mids], -1)
+    #         # stratified samples in those intervals
+    #         t_rand = torch.rand(z_vals.shape)
+
+    #         # Pytest, overwrite u with numpy's fixed random numbers
+    #         if pytest:
+    #             np.random.seed(0)
+    #             t_rand = np.random.rand(*list(z_vals.shape))
+    #             t_rand = torch.Tensor(t_rand)
+
+    #         z_vals = lower + (upper - lower) * t_rand
+
+    #     pts = rays_o[...,None,:] + rays_d[...,None,:] * z_vals[...,:,None] # [N_rays, N_samples, 3]
+
+
+    #     if N_importance <= 0:
+    #         raw, position_delta = network_query_fn(pts, viewdirs, frame_time, network_fn)
+    #         rgb_map, disp_map, acc_map, weights, depth_map, _ = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
+
+    #     else:
+    #         if use_two_models_for_fine:
+    #             raw, position_delta_0 = network_query_fn(pts, viewdirs, frame_time, network_fn)
+    #             rgb_map_0, disp_map_0, acc_map_0, weights, _, _ = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
+
+    #         else:
+    #             with torch.no_grad():
+    #                 raw, _ = network_query_fn(pts, viewdirs, frame_time, network_fn)
+    #                 _, _, _, weights, _, _ = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
+
+    #         z_vals_mid = .5 * (z_vals[...,1:] + z_vals[...,:-1])
+    #         z_samples = sample_pdf(z_vals_mid, weights[...,1:-1], N_importance, det=(perturb==0.), pytest=pytest)
+    #         z_samples = z_samples.detach()
+    #         z_vals, _ = torch.sort(torch.cat([z_vals, z_samples], -1), -1)
+
+    ############# TEMPORARY
+
 
     if z_vals is None:      
         # create coarse integration locations along the rays
