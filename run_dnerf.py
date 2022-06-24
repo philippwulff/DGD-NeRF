@@ -1083,7 +1083,12 @@ def train():
         ####################  Core optimization loop  ####################
         rgb, disp, acc, depth, extras = render(H, W, focal_x, focal_y, chunk=args.chunk, rays=batch_rays, frame_time=frame_time,
                                                 verbose=i < 10, retraw=True, **render_kwargs_train)
-        
+        rgb.to(device)
+        disp.to(device)
+        acc.to(device)
+        depth.to(device)
+        extras.to(device)
+
         if args.add_tv_loss:
             frame_time_prev = times[img_i - 1] if img_i > 0 else None
             frame_time_next = times[img_i + 1] if img_i < times.shape[0] - 1 else None
