@@ -111,7 +111,7 @@ def get_embedder(multires, input_dims, i=0):
 # Model
 class DirectTemporalNeRF(nn.Module):
     def __init__(self, D=8, W=256, input_ch=3, input_ch_views=3, input_ch_time=1, output_ch=4, skips=[4],
-                 use_viewdirs=False, memory=[], embed_fn=None, zero_canonical=True):
+                 use_viewdirs=False, memory=[], embed_fn=None, zero_canonical=True, use_rigidity_network=False):
         super(DirectTemporalNeRF, self).__init__()
         self.D = D
         self.W = W
@@ -123,11 +123,91 @@ class DirectTemporalNeRF(nn.Module):
         self.memory = memory
         self.embed_fn = embed_fn
         self.zero_canonical = zero_canonical        # if the scene at t=0 is the canonical configuration
+        self.use_rigidity_network = use_rigidity_network
 
         self._occ = NeRFOriginal(D=D, W=W, input_ch=input_ch, input_ch_views=input_ch_views,
                                  input_ch_time=input_ch_time, output_ch=output_ch, skips=skips,
                                  use_viewdirs=use_viewdirs, memory=memory, embed_fn=embed_fn, output_color_ch=3)
         self._time, self._time_out = self.create_time_net()
+        if self.use_rigidity_network:
+            self._rigidity = self.create_rigidity_net()
+    
+    def create_rigidity_net(self):
+        """The Rigidity Network"""
+        ### code from https://github.com/facebookresearch/nonrigid_nerf/blob/main/run_nerf_helpers.py
+
+        self.rigidity_activation_function = F.relu  # F.relu, torch.sin
+        self.rigidity_hidden_dimensions = 32  # 32
+        self.rigidity_network_depth = 3  # 3 # at least 2: input -> hidden -> output
+        self.rigidity_skips = []  # do not include 0 and do not include depth-1
+        use_last_layer_bias = True
+        self.rigidity_tanh = nn.Tanh()
+
+        self.rigidity_network = nn.ModuleList(
+            [nn.Linear(self.input_ch, self.rigidity_hidden_dimensions)]
+            + [
+                nn.Linear(
+                    self.input_ch + self.rigidity_hidden_dimensions,
+                    self.rigidity_hidden_dimensions,
+                )
+                if i + 1 in self.rigidity_skips
+                else nn.Linear(
+                    self.rigidity_hidden_dimensions, self.rigidity_hidden_dimensions
+                )
+                for i in range(self.rigidity_network_depth - 2)
+            ]
+            + [
+                nn.Linear(
+                    self.rigidity_hidden_dimensions, 1, bias=use_last_layer_bias
+                )
+            ]
+        )
+
+        # initialize weights
+        with torch.no_grad():
+            for i, layer in enumerate(self.rigidity_network[:-1]):
+                if self.rigidity_activation_function.__name__ == "sin":
+                    # SIREN ( Implicit Neural Representations with Periodic Activation Functions https://arxiv.org/pdf/2006.09661.pdf Sec. 3.2)
+                    if type(layer) == nn.Linear:
+                        a = (
+                            1.0 / layer.in_features
+                            if i == 0
+                            else np.sqrt(6.0 / layer.in_features)
+                        )
+                        layer.weight.uniform_(-a, a)
+                elif self.rigidity_activation_function.__name__ == "relu":
+                    torch.nn.init.kaiming_uniform_(
+                        layer.weight, a=0, mode="fan_in", nonlinearity="relu"
+                    )
+                    torch.nn.init.zeros_(layer.bias)
+
+            # initialize final layer to zero weights
+            self.rigidity_network[-1].weight.data *= 0.0
+            if use_last_layer_bias:
+                self.rigidity_network[-1].bias.data *= 0.0
+            
+        return self.rigidity_network
+
+    def query_rigidity(self, input_pts):
+        """Predicts Rigidity from given encoded location"""
+        h = input_pts
+        for i, layer in enumerate(self.rigidity_network):
+            h = layer(h)
+
+            # SIREN
+            if self.rigidity_activation_function.__name__ == "sin" and i == 0:
+                h *= 30.0
+
+            if i != len(self.rigidity_network) - 1:
+                h = self.rigidity_activation_function(h)
+
+            if i in self.rigidity_skips:
+                h = torch.cat([input_pts, h], -1)
+        rigidity_mask = (
+            self.rigidity_tanh(h) + 1
+        ) / 2  # close to 1 for nonrigid, close to 0 for rigid
+
+        return rigidity_mask
 
     def create_time_net(self):
         """The deformation network."""
@@ -174,6 +254,9 @@ class DirectTemporalNeRF(nn.Module):
             dx = torch.zeros_like(input_pts[:, :3])                             # no deformation in canonical configuration
         else:
             dx = self.query_time(input_pts, t, self._time, self._time_out)      # deformation of given point at time t
+            if self.use_rigidity_network:
+                rigidity_mask = self.query_rigidity(input_pts)
+                dx = rigidity_mask * dx
             input_pts_orig = input_pts[:, :3]
             input_pts = self.embed_fn(input_pts_orig + dx)
         out, _ = self._occ(torch.cat([input_pts, input_views], dim=-1), t)      # predict RGB + density

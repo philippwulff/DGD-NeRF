@@ -76,7 +76,6 @@ def run_network(inputs, viewdirs, frame_time, fn, embed_fn, embeddirs_fn, embedt
         input_frame_time_flat = torch.reshape(input_frame_time, [-1, 1])    # shape: -1, 1
         embedded_time = embedtime_fn(input_frame_time_flat)
         embedded_times = [embedded_time, embedded_time]
-
     else:
         assert NotImplementedError
 
@@ -298,7 +297,8 @@ def create_nerf(args):
         input_ch_time=input_ch_time,                    # TODO P: als info: das ray-bending network wird hier eingebaut
         use_viewdirs=args.use_viewdirs, 
         embed_fn=embed_fn,
-        zero_canonical=not args.not_zero_canonical
+        zero_canonical=not args.not_zero_canonical,
+        use_rigidity_network=args.use_rigidity_network
     ).to(device)
     grad_vars = list(model.parameters())
 
@@ -308,7 +308,7 @@ def create_nerf(args):
                           input_ch=input_ch, output_ch=output_ch, skips=skips,
                           input_ch_views=input_ch_views, input_ch_time=input_ch_time,
                           use_viewdirs=args.use_viewdirs, embed_fn=embed_fn,
-                          zero_canonical=not args.not_zero_canonical).to(device)
+                          zero_canonical=not args.not_zero_canonical, use_rigidity_network=args.use_rigidty_network).to(device)
         grad_vars += list(model_fine.parameters())
         
     def network_query_fn(inputs, viewdirs, ts, network_fn): return run_network(inputs, viewdirs, ts, network_fn,
@@ -757,6 +757,8 @@ def config_parser():
     parser.add_argument("--ft_path", type=str, default=None,        
                         help='specific weights npy file to reload for coarse network')
                         # TODO P: im code wird ft_path benutzt, um alle weights zu initialisiren (nicht nur das coarse net)
+    parser.add_argument("--use_rigidity_network", action='store_true', 
+                    help='if set to true use rigidity network')
 
     # rendering options
     parser.add_argument("--N_samples", type=int, default=64, 
@@ -1157,7 +1159,7 @@ def train():
                 scaled_loss.backward()
         else:
             loss.backward()
-        nn.utils.clip_grad_value_(grad_vars, 0.1)
+        nn.utils.clip_grad_value_(grad_vars, 0.1) #FIXME J: neu eingefügt ohne getestet
         optimizer.step()
 
         ############################ update learning rate ############################

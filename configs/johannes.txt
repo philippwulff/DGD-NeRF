@@ -1,4 +1,4 @@
-expname = johannes_03_test_data_loading_viewdir_true
+expname = johannes_04_test_rigidity_network
 basedir = ./logs
 datadir = ./data/johannes
 dataset_type = owndataset           
@@ -25,10 +25,11 @@ half_res = True
 do_half_precision = False
 
 i_print=100
-i_img = 10000
+i_img = 200
 depth_loss_type = mse
 depth_loss_weight = 0.01
 use_depth_guided_sampling=False
 
 no_reload = True
 render_pose_type = spherical
+use_rigidity_network = True
