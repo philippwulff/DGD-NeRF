@@ -1,11 +1,9 @@
-<img src='https://www.albertpumarola.com/images/2021/D-NeRF/teaser2.gif' align="right" width=400>
+# DGD-NeRF: Depth-Guided Neural Radiance Fields for Dynamic Scenes
+### [[Website]](ourwebsite) [[Paper]](ourpaper) 
 
-# D-NeRF: Neural Radiance Fields for Dynamic Scenes
-### [[Project]](https://www.albertpumarola.com/research/D-NeRF/index.html)[ [Paper]](https://openaccess.thecvf.com/content/CVPR2021/papers/Pumarola_D-NeRF_Neural_Radiance_Fields_for_Dynamic_Scenes_CVPR_2021_paper.pdf) 
+DGD-NeRF is a method for synthesizing novel views, at an arbitrary point in time, of dynamic scenes with complex non-rigid geometries. We optimize an underlying deformable volumetric function from a sparse set of input monocular views without the need of ground-truth geometry nor multi-view images.
 
-[D-NeRF](https://www.albertpumarola.com/research/D-NeRF/index.html) is a method for synthesizing novel views, at an arbitrary point in time, of dynamic scenes with complex non-rigid geometries. We optimize an underlying deformable volumetric function from a sparse set of input monocular views without the need of ground-truth geometry nor multi-view images.
-
-This project is an extension of [NeRF](http://www.matthewtancik.com/nerf) enabling it to model dynmaic scenes. The code heavily relays on [NeRF-pytorch](https://github.com/yenchenlin/nerf-pytorch). 
+This project is an extension of [D-NeRF](https://github.com/albertpumarola/D-NeRF) improving modelling of dynamic scenes. We thank the authors of [NeRF-pytorch](https://github.com/yenchenlin/nerf-pytorch), [Dense Depth Priors for NeRF](https://github.com/barbararoessle/dense_depth_priors_nerf) and [Non-Rigid NeRF](https://github.com/facebookresearch/nonrigid_nerf) from whom be borrow code. 
 
 ![D-NeRF](https://www.albertpumarola.com/images/2021/D-NeRF/model.png)
 
@@ -18,7 +16,7 @@ conda activate dnerf
 pip install -r requirements.txt
 ```
 
-## Download Pre-trained Weights
+### Download Pre-trained Weights
  You can download the pre-trained models from [drive](https://drive.google.com/file/d/1VN-_DkRLL1khDVScQJEaohpbA2gC2I2K/view?usp=sharing) or [dropbox](https://www.dropbox.com/s/25sveotbx2x7wap/logs.zip?dl=0). Unzip the downloaded data to the project root dir in order to test it later. See the following directory structure for an example:
 ```
 ├── logs 
@@ -27,16 +25,14 @@ pip install -r requirements.txt
 │   ├── ...
 ```
 
-## Download Dataset
- You can download the datasets from [drive](https://drive.google.com/file/d/19Na95wk0uikquivC7uKWVqllmTx-mBHt/view?usp=sharing) or [dropbox](https://www.dropbox.com/s/0bf6fl0ye2vz3vr/data.zip?dl=0). Unzip the downloaded data to the project root dir in order to train. See the following directory structure for an example:
-```
-├── data 
-│   ├── mutant
-│   ├── standup 
-│   ├── ...
-```
+### Download Datasets
 
-## Demo
+**DeepDeform**. This is a RGB-D dataset of dynamic scenes with fixed camera poses. You can request access on the project's [GitHub page](https://github.com/AljazBozic/DeepDeform).
+
+**Own Data** TODO
+
+## Usage
+### Demo
 We provide simple jupyter notebooks to explore the model. To use them first download the pre-trained weights and dataset.
 
 | Description      | Jupyter Notebook |
@@ -45,14 +41,14 @@ We provide simple jupyter notebooks to explore the model. To use them first down
 | Reconstruct mesh at an arbitrary point in time. | reconstruct.ipynb|
 | Quantitatively evaluate trained model. | metrics.ipynb|
 
-## Test
+### Test
 First download pre-trained weights and dataset. Then, 
 ```
 python run_dnerf.py --config configs/mutant.txt --render_only --render_test
 ```
 This command will run the `mutant` experiment. When finished, results are saved to `./logs/mutant/renderonly_test_799999` To quantitatively evaluate model run `metrics.ipynb` notebook
 
-## Train
+### Train
 First download the dataset. Then,
 ```
 conda activate dnerf
@@ -62,26 +58,11 @@ python run_dnerf.py --config configs/mutant.txt
 ```
 
 ## Citation
-If you use this code or ideas from the paper for your research, please cite our paper:
-
-
-
-## Datasets
-
-- DeepDeform: https://github.com/AljazBozic/DeepDeform
-  - Scene 120
-- Bonn RGB-D Dynamic Dataset https://www.ipb.uni-bonn.de/data/rgbd-dynamic-dataset/
-  - the balloon scenes may be the best
-- RGB-D SLAM Dataset: https://vision.in.tum.de/data/datasets/rgbd-dataset
-  - Category: Dynamic Objects
-  - Sitting scene may be good
-- LARR RGB-D Dataset for Dynamic Environments: https://haram-kim.github.io/LARR-RGB-D-datasets/
-  - seems less good
-
-
-## References
+If you use this code or ideas from the paper for your research, please cite our paper and the works we rely on:
   
 ```
+TODO
+
 @article{pumarola2020d,
   title={D-NeRF: Neural Radiance Fields for Dynamic Scenes},
   author={Pumarola, Albert and Corona, Enric and Pons-Moll, Gerard and Moreno-Noguer, Francesc},
