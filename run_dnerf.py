@@ -1309,8 +1309,10 @@ def train():
             torch.cuda.empty_cache()
 
             # TODO am trainings beginn nur von den latent codes wählen, die bereits optimiert wurden
-            
-            img_i=np.random.choice(i_val)
+            # if args.use_latent_codes_as_time:
+            #     img_i = np.random.choice(len([l for l in ray_bending_latents_list if torch.nonzero((l))]))
+            # else:
+            img_i = np.random.choice(i_val)
             debug_rays = False
             ray_debug_path = ""
             if i%(5 * args.i_img) == 0 and DEBUG:       # every 5*i_img steps val on the same img
