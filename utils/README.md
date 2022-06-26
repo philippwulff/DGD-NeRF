@@ -21,5 +21,6 @@ Kill a process on the GPU given some PID, e.g. 1234:
 Change to another GPU, e.g. on index 15: `export CUDA_VISIBLE_DEVICES=15`
 
 
+### NeRF Use-cases
 
-
+- Image stabilization
