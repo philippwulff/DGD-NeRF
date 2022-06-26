@@ -2,7 +2,9 @@
 
 ### Git
 
-
+Remove file only from remote repo: `git rm --cached file.txt`
+Remove folder only from remote: `git rm -r --cached folder`
+Then write the file/folder name in the `.gitignore` and push the changes.
 ### Tmux
 
 Find all commands in the [Cheat Sheet](https://tmuxcheatsheet.com).
