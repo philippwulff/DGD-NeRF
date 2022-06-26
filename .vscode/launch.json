@@ -10,8 +10,19 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "dnerf Philipp",
+            "type": "python",
+            "request": "launch",
+            "program": "run_dnerf.py",
+            "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["--config","configs/johannes.txt"]
+            "args": [
+                "--config",
+                "configs/human_debug.txt"
+            ]
         }
     ]
 }

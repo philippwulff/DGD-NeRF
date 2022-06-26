@@ -1,3 +1,4 @@
+from matplotlib import use
 import torch
 torch.autograd.set_detect_anomaly(True)
 import torch.nn as nn
@@ -111,19 +112,21 @@ def get_embedder(multires, input_dims, i=0):
 # Model
 class DirectTemporalNeRF(nn.Module):
     def __init__(self, D=8, W=256, input_ch=3, input_ch_views=3, input_ch_time=1, output_ch=4, skips=[4],
-                 use_viewdirs=False, memory=[], embed_fn=None, zero_canonical=True, use_rigidity_network=False):
+                 use_viewdirs=False, memory=[], embed_fn=None, zero_canonical=True, use_rigidity_network=False,
+                use_latent_codes_as_time=False, ray_bending_latent_size=None):
         super(DirectTemporalNeRF, self).__init__()
         self.D = D
         self.W = W
         self.input_ch = input_ch
         self.input_ch_views = input_ch_views
-        self.input_ch_time = input_ch_time
+        self.input_ch_time = input_ch_time if not use_latent_codes_as_time else ray_bending_latent_size
         self.skips = skips
         self.use_viewdirs = use_viewdirs
         self.memory = memory
         self.embed_fn = embed_fn
-        self.zero_canonical = zero_canonical        # if the scene at t=0 is the canonical configuration
+        self.zero_canonical = zero_canonical                    # if the scene at t=0 is the canonical configuration
         self.use_rigidity_network = use_rigidity_network
+        self.use_latent_codes_as_time = use_latent_codes_as_time
 
         self._occ = NeRFOriginal(D=D, W=W, input_ch=input_ch, input_ch_views=input_ch_views,
                                  input_ch_time=input_ch_time, output_ch=output_ch, skips=skips,
@@ -211,7 +214,7 @@ class DirectTemporalNeRF(nn.Module):
 
     def create_time_net(self):
         """The deformation network."""
-        layers = [nn.Linear(self.input_ch + self.input_ch_time, self.W)]    # input is encoded position + time
+        layers = [nn.Linear(self.input_ch + self.input_ch_time, self.W)]    # input is encoded position + time/latent code
         for i in range(self.D - 1):
             if i in self.memory:
                 raise NotImplementedError
@@ -239,18 +242,21 @@ class DirectTemporalNeRF(nn.Module):
     def forward(self, x, ts):
         """Predict canonical sample.
         Args:
-            x (torch.Tensor): embedded position + viewing direction.
-            ts (torch.Tensor): time stamps of the rays in the batch.
+            x (Tensor): shape (-1, encoding_size). Embedded position (+ viewing direction).
+            ts (list): Time stamps of the rays in the batch.
+                if self.use_latent_codes_as_time:   list of two identical Tensors with shape (-1, ray_bending_latent_size)
+                else:                               list of two identical Tensors with shape (-1, encoding_size).
         Returns:
             out: RGB and density
-            dx: deformations 
+            dx: deformations
         """
         input_pts, input_views = torch.split(x, [self.input_ch, self.input_ch_views], dim=-1)
-        t = ts[0]           
+        t = ts[0] 
+        if not self.use_latent_codes_as_time:
+            assert len(torch.unique(t[:, :1])) == 1, "Only accepts all points from same time"
+            cur_time = t[0, 0]
 
-        assert len(torch.unique(t[:, :1])) == 1, "Only accepts all points from same time"
-        cur_time = t[0, 0]
-        if cur_time == 0. and self.zero_canonical:
+        if not self.use_latent_codes_as_time and cur_time == 0. and self.zero_canonical:
             dx = torch.zeros_like(input_pts[:, :3])                             # no deformation in canonical configuration
         else:
             dx = self.query_time(input_pts, t, self._time, self._time_out)      # deformation of given point at time t
@@ -269,12 +275,15 @@ class NeRF:
         print ("[Config] NeRF type selected: %s" % type)
 
         if type == "original":
+            if kwargs.use_latent_codes_as_time or kwargs.use_rigity_network:
+                raise NotImplementedError("Naive NeRF cannot be used with latent deformation codes or rigidity network.")
             model = NeRFOriginal(*args, **kwargs)
         elif type == "direct_temporal":
             model = DirectTemporalNeRF(*args, **kwargs)
         else:
             raise ValueError("Type %s not recognized." % type)
         return model
+
 
 class NeRFOriginal(nn.Module):
     """See architecture in the original paper in Fig. 7. This is the canonical network."""

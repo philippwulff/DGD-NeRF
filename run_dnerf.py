@@ -7,7 +7,7 @@ import math
 import json
 import pickle
 from collections import defaultdict
-
+import configargparse
 
 from run_dnerf_helpers import *
 from utils import load_blender_data, load_deepdeform_data, load_owndataset_data
@@ -55,12 +55,13 @@ def batchify(fn, chunk):
 
 
 def run_network(inputs, viewdirs, frame_time, fn, embed_fn, embeddirs_fn, embedtime_fn, netchunk=1024*64,
-                embd_time_discr=True):
+                embd_time_discr=True, use_latent_codes_as_time=False):
     """Prepares inputs and applies network 'fn'.
-    inputs: N_rays x N_points_per_ray x 3   
-    viewdirs: N_rays x 3                                # TODO P: why not 2?
-    frame_time: N_rays x 1
-    fn: network forward function
+    inputs (Tensor): N_rays x N_points_per_ray x 3   
+    viewdirs (Tensor): N_rays x 3                                # TODO P: why not 2?
+    frame_time (Tensor): (N_rays x 1) if direct time or (N_rays, ray_bending_latent_size) if latent codes for deformation network
+    fn (function): network forward function
+    ray_bending_latents (Tensor or None): .
     """
     assert len(torch.unique(frame_time)) == 1, "Only accepts all points from same time"
     cur_time = torch.unique(frame_time)[0]
@@ -69,8 +70,22 @@ def run_network(inputs, viewdirs, frame_time, fn, embed_fn, embeddirs_fn, embedt
     inputs_flat = torch.reshape(inputs, [-1, inputs.shape[-1]])             # shape: -1, 3
     embedded = embed_fn(inputs_flat)
 
-    # embed time
-    if embd_time_discr:
+    # embed views
+    if viewdirs is not None:
+        input_dirs = viewdirs[:,None].expand(inputs.shape)
+        input_dirs_flat = torch.reshape(input_dirs, [-1, input_dirs.shape[-1]]) # shape: -1, 3 
+        embedded_dirs = embeddirs_fn(input_dirs_flat)
+        embedded = torch.cat([embedded, embedded_dirs], -1)
+
+    if use_latent_codes_as_time:        # latent codes instead of time
+        ray_bending_latents = frame_time[:, None].expand((inputs.shape[0], inputs.shape[1], frame_time.shape[-1]))  
+        # N_rays x N_samples_per_ray x latent_size
+        ray_bending_latents = torch.reshape(ray_bending_latents, [-1, ray_bending_latents.shape[-1]])  
+        # N_rays * N_samples_per_ray x latent_size
+        # embedded = torch.cat([embedded, ray_bending_latents], -1)  # N_rays * N_samples_per_ray x (embedded position + embedded viewdirection + latent code)      # TODO delete
+        embedded_times = [ray_bending_latents, ray_bending_latents]
+    elif embd_time_discr:
+        # embed time
         B, N, _ = inputs.shape      
         input_frame_time = frame_time[:, None].expand([B, N, 1])
         input_frame_time_flat = torch.reshape(input_frame_time, [-1, 1])    # shape: -1, 1
@@ -79,13 +94,6 @@ def run_network(inputs, viewdirs, frame_time, fn, embed_fn, embeddirs_fn, embedt
     else:
         assert NotImplementedError
 
-    # embed views
-    if viewdirs is not None:
-        input_dirs = viewdirs[:,None].expand(inputs.shape)
-        input_dirs_flat = torch.reshape(input_dirs, [-1, input_dirs.shape[-1]]) # shape: -1, 3 
-        embedded_dirs = embeddirs_fn(input_dirs_flat)
-        embedded = torch.cat([embedded, embedded_dirs], -1)
-
     outputs_flat, position_delta_flat = batchify(fn, netchunk)(embedded, embedded_times)
     outputs = torch.reshape(outputs_flat, list(inputs.shape[:-1]) + [outputs_flat.shape[-1]])   
     position_delta = torch.reshape(position_delta_flat, list(inputs.shape[:-1]) + [position_delta_flat.shape[-1]])
@@ -93,7 +101,7 @@ def run_network(inputs, viewdirs, frame_time, fn, embed_fn, embeddirs_fn, embedt
     return outputs, position_delta
 
 
-def batchify_rays(rays_flat, chunk=1024*32, H=None, W=None, **kwargs):
+def batchify_rays(rays_flat, chunk=1024*32, H=None, W=None, ray_bending_latent_codes=None, **kwargs):
     """Render rays in smaller minibatches to avoid OOM errors.
 
     Args:
@@ -107,10 +115,9 @@ def batchify_rays(rays_flat, chunk=1024*32, H=None, W=None, **kwargs):
     all_ret = defaultdict(list)
     all_ray_debug = defaultdict(list)
     for i in range(0, rays_flat.shape[0], chunk):
-        ret, ray_debug = render_rays(rays_flat[i:i+chunk], **kwargs)
+        relevant_rblc = ray_bending_latent_codes[i:i+chunk, :] if ray_bending_latent_codes is not None else None
+        ret, ray_debug = render_rays(rays_flat[i:i+chunk], ray_bending_latent_codes=relevant_rblc, **kwargs)
         for k in ret:
-            # if k not in all_ret:
-            #     all_ret[k] = []
             all_ret[k].append(ret[k])
         if ray_debug:
             for k in ray_debug:
@@ -123,34 +130,35 @@ def batchify_rays(rays_flat, chunk=1024*32, H=None, W=None, **kwargs):
 
 
 def render(H, W, focal_x, focal_y, chunk=1024*32, rays=None, c2w=None, ndc=True,
-                  near=0., far=1., frame_time=None, c2w_staticcam=None, ray_debug_path="",
-                  **kwargs):
+           near=0., far=1., frame_time=None, use_latent_codes_as_time=False,
+           c2w_staticcam=None, ray_debug_path="", **kwargs):
     """Calls methods to render the given rays.
 
     Args:
-      H: int. Height of image in pixels.
-      W: int. Width of image in pixels.
-      focal_x: float. Focal length in X direction.
-      focal_y: float. Focal length in Y direction.
-      chunk: int. Maximum number of rays to process simultaneously. Used to
-        control maximum memory usage. Does not affect final results.
-      rays: array of shape [2, batch_size, 3]. Ray origin and direction for
-        each example in batch. TODO
-      c2w: array of shape [3, 4]. Camera-to-world transformation matrix. 
-        Horizontal stack of the rotation matrix an the translation vector.
-      ndc: bool. If True, represent ray origin, direction in normalized device coordinates (NDC).
-      near: float or array of shape [batch_size]. Nearest distance for a ray.
-      far: float or array of shape [batch_size]. Farthest distance for a ray.
-      use_viewdirs: bool. If True, use viewing direction of a point in space in model.
-      c2w_staticcam: array of shape [3, 4]. If not None, use this transformation matrix for 
-       camera while using other c2w argument for viewing directions.
+        H: int. Height of image in pixels.
+        W: int. Width of image in pixels.
+        focal_x: float. Focal length in X direction.
+        focal_y: float. Focal length in Y direction.
+        chunk: int. Maximum number of rays to process simultaneously. Used to
+            control maximum memory usage. Does not affect final results.
+        rays: array of shape [2, batch_size, 3]. Ray origin and direction for
+            each example in batch. TODO
+        c2w: array of shape [3, 4]. Camera-to-world transformation matrix. 
+            Horizontal stack of the rotation matrix an the translation vector.
+        ndc: bool. If True, represent ray origin, direction in normalized device coordinates (NDC).
+        near: float or array of shape [batch_size]. Nearest distance for a ray.
+        far: float or array of shape [batch_size]. Farthest distance for a ray.
+        use_viewdirs: bool. If True, use viewing direction of a point in space in model.
+        c2w_staticcam: array of shape [3, 4]. If not None, use this transformation matrix for 
+            camera while using other c2w argument for viewing directions.
+        ray_bending_latent_codes: TODO
 
     Returns:
-      rgb_map: [batch_size, 3]. Predicted RGB values for rays.
-      disp_map: [batch_size]. Disparity map. Inverse of depth.
-      acc_map: [batch_size]. Accumulated opacity (alpha) along a ray.
-      depth_map: [batch_size]. Predicted depth of pixel.
-      extras: dict with everything returned by render_rays().
+        rgb_map: [batch_size, 3]. Predicted RGB values for rays.
+        disp_map: [batch_size]. Disparity map. Inverse of depth.
+        acc_map: [batch_size]. Accumulated opacity (alpha) along a ray.
+        depth_map: [batch_size]. Predicted depth of pixel.
+        extras: dict with everything returned by render_rays().
     """
     rays_depth = None
     if c2w is not None:
@@ -190,7 +198,9 @@ def render(H, W, focal_x, focal_y, chunk=1024*32, rays=None, c2w=None, ndc=True,
         rays = torch.cat([rays, rays_depth], -1)        # [batch_size * 12] or [batch_size * 15]
 
     # Render and reshape
-    all_ret, all_ray_debug = batchify_rays(rays, chunk, H, W, **kwargs)      
+    all_ret, all_ray_debug = batchify_rays(rays, chunk, H, W, 
+                                           ray_bending_latent_codes=frame_time if use_latent_codes_as_time else None, 
+                                           **kwargs)       
     for k in all_ret:
         k_sh = list(sh[:-1]) + list(all_ret[k].shape[1:])
         all_ret[k] = torch.reshape(all_ret[k], k_sh)
@@ -264,8 +274,11 @@ def render_path(render_poses, render_times, hwff, chunk, render_kwargs, gt_imgs=
     return rgbs, disps
 
 
-def create_nerf(args):
+def create_nerf(args, autodecoder_variables=None):
     """Instantiate NeRF's MLP model.
+    Args:
+        args (dict): Model arguments.
+        autodecoder_variables (Tensor): (TODO shape) Learnable latent vectors as input for deformation network. 
     Returns:
         render_kwargs_train: dict for training configuration.
         render_kwargs_test: dict for test configuration.
@@ -273,6 +286,10 @@ def create_nerf(args):
         grad_vars: learnable parameters.
         optimizer: Adam optim.
     """
+    grad_vars = []
+    if autodecoder_variables is not None:
+        grad_vars += autodecoder_variables
+
     # Positional encoding
     embed_fn, input_ch = get_embedder(args.multires, 3, args.i_embed)                       # Encode the 3D position
     embedtime_fn, input_ch_time = get_embedder(args.multires, 1, args.i_embed)
@@ -283,7 +300,7 @@ def create_nerf(args):
         embeddirs_fn, input_ch_views = get_embedder(args.multires_views, 3, args.i_embed)   # Also encode the 2D direction 
         # TODO P: Warum 3? sollte das nicht 2 sein?
 
-    # output_ch only changes the net architecture if use_viewdirs is
+    # output_ch only changes the net architecture if use_viewdirs is true
     output_ch = 5 if args.N_importance > 0 else 4                   # TODO warum 5??? RGB + density???
     skips = [4]
     model = NeRF.get_by_name(
@@ -294,21 +311,34 @@ def create_nerf(args):
         output_ch=output_ch, 
         skips=skips,
         input_ch_views=input_ch_views, 
-        input_ch_time=input_ch_time,                    # TODO P: als info: das ray-bending network wird hier eingebaut
+        input_ch_time=input_ch_time,                    
         use_viewdirs=args.use_viewdirs, 
         embed_fn=embed_fn,
         zero_canonical=not args.not_zero_canonical,
-        use_rigidity_network=args.use_rigidity_network
+        use_rigidity_network=args.use_rigidity_network,
+        use_latent_codes_as_time=args.use_latent_codes_as_time,
+        ray_bending_latent_size=args.ray_bending_latent_size,
     ).to(device)
     grad_vars = list(model.parameters())
 
     model_fine = None
     if args.use_two_models_for_fine:            # fine network for hierarchical sampling
-        model_fine = NeRF.get_by_name(args.nerf_type, D=args.netdepth_fine, W=args.netwidth_fine,
-                          input_ch=input_ch, output_ch=output_ch, skips=skips,
-                          input_ch_views=input_ch_views, input_ch_time=input_ch_time,
-                          use_viewdirs=args.use_viewdirs, embed_fn=embed_fn,
-                          zero_canonical=not args.not_zero_canonical, use_rigidity_network=args.use_rigidty_network).to(device)
+        model_fine = NeRF.get_by_name(
+            args.nerf_type, 
+            D=args.netdepth_fine, 
+            W=args.netwidth_fine,
+            input_ch=input_ch, 
+            output_ch=output_ch, 
+            skips=skips,
+            input_ch_views=input_ch_views, 
+            input_ch_time=input_ch_time,
+            use_viewdirs=args.use_viewdirs, 
+            embed_fn=embed_fn,
+            zero_canonical=not args.not_zero_canonical, 
+            use_rigidity_network=args.use_rigidty_network,
+            use_latent_codes_as_time=args.use_latent_codes_as_time,
+            ray_bending_latent_size=args.ray_bending_latent_size,
+        ).to(device)
         grad_vars += list(model_fine.parameters())
         
     def network_query_fn(inputs, viewdirs, ts, network_fn): return run_network(inputs, viewdirs, ts, network_fn,
@@ -316,10 +346,11 @@ def create_nerf(args):
                                                                                embeddirs_fn=embeddirs_fn,
                                                                                embedtime_fn=embedtime_fn,
                                                                                netchunk=args.netchunk,
-                                                                               embd_time_discr=args.nerf_type != "temporal"
-                                                                               )
+                                                                               embd_time_discr=args.nerf_type != "temporal",
+                                                                               use_latent_codes_as_time=args.use_latent_codes_as_time,)
 
     # Create optimizer
+    # Note: needs to be Adam. otherwise need to check how to avoid wrong DeepSDF-style autodecoder optimization of the per-frame latent codes.
     optimizer = torch.optim.Adam(params=grad_vars, lr=args.lrate, betas=(0.9, 0.999))
 
     if args.do_half_precision:          # TODO P: amp ist nicht installier, oder? Wird das hier je ausgeführt?
@@ -360,6 +391,9 @@ def create_nerf(args):
             model_fine.load_state_dict(ckpt['network_fine_state_dict'])
         if args.do_half_precision:
             amp.load_state_dict(ckpt['amp'])
+        if autodecoder_variables is not None:
+            for latent, saved_latent in zip(autodecoder_variables, ckpt["ray_bending_latent_codes"]):
+                latent.data[:] = saved_latent[:].detach().clone()
 
     ##########################
 
@@ -474,6 +508,7 @@ def render_rays(ray_batch,
                 verbose=False,
                 pytest=False,
                 z_vals=None,
+                ray_bending_latent_codes=None,
                 use_two_models_for_fine=False,
                 use_viewdirs=False,
                 use_depth_guided_sampling=False,
@@ -535,6 +570,9 @@ def render_rays(ray_batch,
     else:
         if ray_batch.shape[-1] > 9:
             depth_range = ray_batch[:, 9:12]
+
+    if ray_bending_latent_codes is not None:
+        frame_time = ray_bending_latent_codes          # FIXME P enstehen hierdurch deepcopy probleme??? ansonsten im dict zusammen mit frame-time übergeben
 
     ############# TEMPORARY
 
@@ -714,7 +752,6 @@ def render_rays(ray_batch,
 
 def config_parser():
 
-    import configargparse
     parser = configargparse.ArgumentParser()
     parser.add_argument('--config', is_config_file=True, 
                         help='config file path')
@@ -725,11 +762,9 @@ def config_parser():
     parser.add_argument("--datadir", type=str, default='./data/llff/fern', 
                         help='input data directory')
 
-    # training options
+    # network architecture options
     parser.add_argument("--nerf_type", type=str, default="original",
-                        help='nerf network type')
-    parser.add_argument("--N_iter", type=int, default=500000,
-                        help='num training iterations')
+                        help='nerf network type. Options: original / temporal')
     parser.add_argument("--netdepth", type=int, default=8, 
                         help='layers in network')
     parser.add_argument("--netwidth", type=int, default=256, 
@@ -738,27 +773,12 @@ def config_parser():
                         help='layers in fine network')
     parser.add_argument("--netwidth_fine", type=int, default=256, 
                         help='channels per layer in fine network')
-    parser.add_argument("--N_rand", type=int, default=32*32*4, 
-                        help='batch size (number of random rays per gradient step)')
-    parser.add_argument("--do_half_precision", action='store_true',
-                        help='do half precision training and inference')
-    parser.add_argument("--lrate", type=float, default=5e-4, 
-                        help='learning rate')
-    parser.add_argument("--lrate_decay", type=int, default=250, 
-                        help='exponential learning rate decay (in 1000 steps)')
-    parser.add_argument("--chunk", type=int, default=1024*32, 
-                        help='number of rays processed in parallel, decrease if running out of memory')
-    parser.add_argument("--netchunk", type=int, default=1024*64, 
-                        help='number of pts sent through network in parallel, decrease if running out of memory')
-    parser.add_argument("--no_batching", action='store_true', 
-                        help='only take random rays from 1 image at a time')
-    parser.add_argument("--no_reload", action='store_true', 
-                        help='do not reload weights from saved ckpt')
-    parser.add_argument("--ft_path", type=str, default=None,        
-                        help='specific weights npy file to reload for coarse network')
-                        # TODO P: im code wird ft_path benutzt, um alle weights zu initialisiren (nicht nur das coarse net)
     parser.add_argument("--use_rigidity_network", action='store_true', 
-                    help='if set to true use rigidity network')
+                        help='if set to true use rigidity network')
+    parser.add_argument("--use_latent_codes_as_time", action="store_true",
+                        help="learnable latent codes instead of time input to deformation network")
+    parser.add_argument("--ray_bending_latent_size", type=int, default=32,
+                        help="size of per-frame autodecoding latent vector used for deformation network")
 
     # rendering options
     parser.add_argument("--N_samples", type=int, default=64, 
@@ -794,6 +814,27 @@ def config_parser():
                         help='render poses spherical or spiral')
 
     # training options
+    parser.add_argument("--N_iter", type=int, default=500000,
+                        help='num training iterations')
+    parser.add_argument("--N_rand", type=int, default=32*32*4, 
+                        help='batch size (number of random rays per gradient step)')
+    parser.add_argument("--do_half_precision", action='store_true',
+                        help='do half precision training and inference')
+    parser.add_argument("--lrate", type=float, default=5e-4, 
+                        help='learning rate')
+    parser.add_argument("--lrate_decay", type=int, default=250, 
+                        help='exponential learning rate decay (in 1000 steps)')
+    parser.add_argument("--chunk", type=int, default=1024*32, 
+                        help='number of rays processed in parallel, decrease if running out of memory')
+    parser.add_argument("--netchunk", type=int, default=1024*64, 
+                        help='number of pts sent through network in parallel, decrease if running out of memory')
+    parser.add_argument("--no_batching", action='store_true', 
+                        help='only take random rays from 1 image at a time')
+    parser.add_argument("--no_reload", action='store_true', 
+                        help='do not reload weights from saved ckpt')
+    parser.add_argument("--ft_path", type=str, default=None,        
+                        help='specific weights npy file to reload for coarse network')
+                        # TODO P: im code wird ft_path benutzt, um alle weights zu initialisiren (nicht nur das coarse net)
     parser.add_argument("--precrop_iters", type=int, default=0,
                         help='number of steps to train on central crops')
     parser.add_argument("--precrop_iters_time", type=int, default=0,
@@ -811,7 +852,7 @@ def config_parser():
 
     # dataset options
     parser.add_argument("--dataset_type", type=str, default='llff', 
-                        help='options: llff / blender / deepvoxels / deepdeform')
+                        help='options: llff / blender / deepvoxels / deepdeform / owndataset')
     parser.add_argument("--testskip", type=int, default=2,
                         help='will load 1/N images from test/val sets, useful for large datasets like deepvoxels')
 
@@ -945,14 +986,25 @@ def train():
         with open(os.path.join(basedir, expname, 'config.txt'), 'w') as file:
             file.write(open(args.config, 'r').read())
 
+    ray_bending_latents_list = []
+    if args.use_latent_codes_as_time:
+        # create autodecoder variables as pytorch tensors
+        ray_bending_latents_list = [
+            torch.zeros(args.ray_bending_latent_size).cuda()
+            for _ in range(len(times))          # FIXME P: nur die train times?
+        ]
+        for latent in ray_bending_latents_list:
+            latent.requires_grad = True
+
     # Create nerf model
-    render_kwargs_train, render_kwargs_test, start, grad_vars, optimizer = create_nerf(args)
+    render_kwargs_train, render_kwargs_test, start, grad_vars, optimizer = create_nerf(args, autodecoder_variables=ray_bending_latents_list)
     global_step = start
 
     bds_dict = {
         'near' : near,
         'far' : far,
         "use_depth_guided_sampling": args.use_depth_guided_sampling,
+        "use_latent_codes_as_time": args.use_latent_codes_as_time,
     }
     render_kwargs_train.update(bds_dict)
     render_kwargs_test.update(bds_dict)
@@ -1011,7 +1063,9 @@ def train():
     times = torch.Tensor(times).to(device)
     if use_batching:
         rays_rgb = torch.Tensor(rays_rgb).to(device)
+    # FIXME P vielleicht auch ray_bending_latent_codes auf GPU
 
+    #################### Training loop ####################
 
     N_iters = args.N_iter + 1
     print('[Info] Beginning training')
@@ -1054,7 +1108,10 @@ def train():
             if comp_depth:
                 target_depth = depth_maps[img_i]
             pose = poses[img_i, :3, :4]
-            frame_time = times[img_i]
+            if args.use_latent_codes_as_time:        # FIXME P richtig???
+                frame_time = ray_bending_latents_list[img_i]
+            else:
+                frame_time = times[img_i]
              
             if N_rand is not None:
                 rays_o, rays_d = get_rays(H, W, focal_x, focal_y, torch.Tensor(pose))  # (H, W, 3), (H, W, 3)
@@ -1088,7 +1145,7 @@ def train():
                         depth_range = comp_depth_sampling(target_depth_s, target_stds_s)
                         batch_rays = torch.stack([rays_o, rays_d, depth_range], 0) # (3, N_rand, 3))
 
-        ####################  Core optimization loop  ####################
+        ####################  Core optimization  ####################
         rgb, disp, acc, depth, extras = render(H, W, focal_x, focal_y, chunk=args.chunk, rays=batch_rays, frame_time=frame_time,
                                                 verbose=i < 10, retraw=True, **render_kwargs_train)
         rgb.to(device)
@@ -1118,7 +1175,11 @@ def train():
                                                 verbose=i < 10, retraw=True, z_vals=extras['z_vals'].detach(),
                                                 **render_kwargs_train)
 
-        optimizer.zero_grad()
+        optimizer.zero_grad()           # FIXME P: this part is at beginning of loop in NR-NeRF
+        # reset autodecoder gradients to avoid wrong DeepSDF-style optimization. Note: this is only guaranteed to work if the optimizer is Adam
+        for latent in ray_bending_latents_list:
+            latent.grad = None
+
         img_loss = img2mse(rgb, target_s)
 
         tv_loss = 0
@@ -1159,6 +1220,7 @@ def train():
                 scaled_loss.backward()
         else:
             loss.backward()
+
         nn.utils.clip_grad_value_(grad_vars, 0.1) #FIXME J: neu eingefügt ohne getestet
         optimizer.step()
 
@@ -1177,15 +1239,21 @@ def train():
         # print(f"Step: {global_step}, Loss: {loss}, Time: {dt}")
 
         # Save network weights checkpoint
-        if i%args.i_weights == 0:       
+        if i%args.i_weights == 0:     
+            all_latents = torch.zeros(0)
+            for l in ray_bending_latents_list:
+                all_latents = torch.cat([all_latents, l.cpu().unsqueeze(0)], 0)  
+
             path = os.path.join(basedir, expname, '{:06d}.tar'.format(i))
             save_dict = {
                 'global_step': global_step,
                 'network_fn_state_dict': render_kwargs_train['network_fn'].state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
+                'network_fine_state_dict': render_kwargs_train['network_fine'].state_dict() if render_kwargs_train['network_fine'] is not None else None,
+                "ray_bending_latent_codes": all_latents,        # shape: frames x latent_size
             }
-            if render_kwargs_train['network_fine'] is not None:
-                save_dict['network_fine_state_dict'] = render_kwargs_train['network_fine'].state_dict()
+            # if render_kwargs_train['network_fine'] is not None:
+            #     save_dict['network_fine_state_dict'] = render_kwargs_train['network_fine'].state_dict()
 
             if args.do_half_precision:
                 save_dict['amp'] = amp.state_dict()

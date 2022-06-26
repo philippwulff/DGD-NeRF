@@ -1,13 +1,13 @@
-expname = johannes_04_test_rigidity_network
+expname = johannes_05_test_rigidity_network
 basedir = ./logs
-datadir = ./data/johannes
+datadir = ./data/johannes_2
 dataset_type = owndataset           
 
 nerf_type = direct_temporal
 no_batching = True
 not_zero_canonical = False
 
-use_viewdirs = True
+use_viewdirs = False
 white_bkgd = False
 lrate_decay = 500
 
@@ -17,15 +17,15 @@ N_importance = 128
 N_rand = 500
 testskip = 1
 
-precrop_iters = 500
-precrop_iters_time = 10000
+precrop_iters = 0
+precrop_iters_time = 0
 precrop_frac = 0.5
 
 half_res = True
 do_half_precision = False
 
-i_print=100
-i_img = 200
+i_print=1000
+i_img = 10000
 depth_loss_type = mse
 depth_loss_weight = 0.01
 use_depth_guided_sampling=False

@@ -268,7 +268,10 @@ def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="
         imgs = (np.array(imgs) / 255.).astype(np.float32)  # .jpg has 3 channels -> RGB
         depth_maps = (np.array(depth_maps)).astype(np.float32)  # convert mm to m
         poses = (np.array(poses)).astype(np.float32)
-        poses[:, 0:3, 3] = poses[:, 0:3, 3]         # convert mm to m
+
+        #scaling_factor = np.max(np.abs(poses[:,:3,3]))  #convert to have poses in unit cube [-1,1]^3
+        #depth_maps /= scaling_factor                    #convert to have same unit as in poses
+        #poses[:, 0:3, 3] /= scaling_factor         
         times = np.array(times).astype(np.float32)
         counts.append(counts[-1] + imgs.shape[0])
         all_imgs.append(imgs)

@@ -10,6 +10,8 @@ not_zero_canonical = False
 use_depth_guided_sampling = True
 depth_loss_type = mse
 depth_loss_weight = 0.005
+use_latent_codes_as_time = True
+
 
 use_viewdirs = False
 white_bkgd = False

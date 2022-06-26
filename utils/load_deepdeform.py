@@ -182,7 +182,7 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1, render_pose_type="
 
         imgs = (np.array(imgs) / 255.).astype(np.float32)  # .jpg has 3 channels -> RGB
         depth_maps = (np.array(depth_maps)).astype(np.float32)  
-        depth_maps /= np.max(depth_maps) * 0.5       # convert depth from mm to [0, 2]
+        depth_maps /= depth_maps.max() * 0.5       # convert depth from mm to [0, 2]
         poses = (np.array(poses)).astype(np.float32)
         poses[:, 0:3, 3] = poses[:, 0:3, 3] / (SCENE_OBJECT_DEPTH*1000)    # convert x,y,z from mm to [-1,1]
         times = np.array(times).astype(np.float32)
@@ -251,5 +251,5 @@ if __name__ == "__main__":
     #exit(0)
 
     # print("DEBUGGING")
-    # images, depth_maps, poses, times, render_poses, render_times, hwf, i_split = load_deepdeform_data("./data/human", True, 1)
-    # print('Loaded deepdeform', images.shape, render_poses.shape, hwf)
+    images, depth_maps, poses, times, render_poses, render_times, hwff, i_split = load_deepdeform_data("./data/human", True, 1)
+    print('Loaded deepdeform', images.shape, render_poses.shape, hwff)
