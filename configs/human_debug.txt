@@ -31,6 +31,7 @@ half_res = True
 do_half_precision = False
 
 i_img = 100
+i_video = 5000
 
 no_reload = True
 render_pose_type = spiral

@@ -63,8 +63,9 @@ def run_network(inputs, viewdirs, frame_time, fn, embed_fn, embeddirs_fn, embedt
     fn (function): network forward function
     ray_bending_latents (Tensor or None): .
     """
-    assert len(torch.unique(frame_time)) == 1, "Only accepts all points from same time"
-    cur_time = torch.unique(frame_time)[0]
+    if not use_latent_codes_as_time:
+        assert len(torch.unique(frame_time)) == 1, "Only accepts all points from same time"
+        cur_time = torch.unique(frame_time)[0]
 
     # embed position
     inputs_flat = torch.reshape(inputs, [-1, inputs.shape[-1]])             # shape: -1, 3
@@ -320,7 +321,7 @@ def create_nerf(args, autodecoder_variables=None):
         use_latent_codes_as_time=args.use_latent_codes_as_time,
         ray_bending_latent_size=args.ray_bending_latent_size,
     ).to(device)
-    grad_vars = list(model.parameters())
+    grad_vars += list(model.parameters())
 
     model_fine = None
     if args.use_two_models_for_fine:            # fine network for hierarchical sampling
@@ -991,14 +992,14 @@ def train():
     if args.use_latent_codes_as_time:
         # create autodecoder variables as pytorch tensors
         ray_bending_latents_list = [
-            torch.zeros(args.ray_bending_latent_size).cuda()
-            for _ in range(len(times))          # FIXME P: nur die train times?
+            torch.zeros(args.ray_bending_latent_size)
+            for _ in range(len(times))          
         ]
         for latent in ray_bending_latents_list:
             latent.requires_grad = True
 
         # select nearest timesteps from latents list
-        render_times = [ray_bending_latents_list[int(t*(len(ray_bending_latents_list)-1))].detach().clone() for t in render_times]      # FIXME P ist detach clone richtig????
+        render_times = [ray_bending_latents_list[int(t*(len(ray_bending_latents_list)-1))].clone().detach() for t in render_times]      # FIXME P ist detach clone richtig????
 
     # Create nerf model
     render_kwargs_train, render_kwargs_test, start, grad_vars, optimizer = create_nerf(args, autodecoder_variables=ray_bending_latents_list)
@@ -1306,6 +1307,8 @@ def train():
         # Validate on a random image from the val set
         if i%args.i_img == 0:       
             torch.cuda.empty_cache()
+
+            # TODO am trainings beginn nur von den latent codes wählen, die bereits optimiert wurden
             
             img_i=np.random.choice(i_val)
             debug_rays = False
