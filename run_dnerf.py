@@ -220,7 +220,7 @@ def render(H, W, focal_x, focal_y, chunk=1024*32, rays=None, c2w=None, ndc=True,
 
 
 def render_path(render_poses, render_times, hwff, chunk, render_kwargs, gt_imgs=None, savedir=None,
-                render_factor=0, save_also_gt=False, i_offset=0):
+                render_factor=0, save_also_gt=False, i_offset=0, ray_bending_latent_codes=None):
     """Render images at the given camera poses and times.
     Args:
         render_poses: array of poses to be rendered.
@@ -230,6 +230,7 @@ def render_path(render_poses, render_times, hwff, chunk, render_kwargs, gt_imgs=
         render_kwargs: dict which contains train/test objects such as the run_network function.
         gt_imgs: list of ground truth images. Defaults to None.
         i_offset: int. . Defaults to 0.
+        ray_bending_latent_codes TODO
     Returns:
         _type_: _description_
     """
@@ -996,6 +997,9 @@ def train():
         for latent in ray_bending_latents_list:
             latent.requires_grad = True
 
+        # select nearest timesteps from latents list
+        render_times = [ray_bending_latents_list[int(t*(len(ray_bending_latents_list)-1))].detach().clone() for t in render_times]      # FIXME P ist detach clone richtig????
+
     # Create nerf model
     render_kwargs_train, render_kwargs_test, start, grad_vars, optimizer = create_nerf(args, autodecoder_variables=ray_bending_latents_list)
     global_step = start
@@ -1011,7 +1015,10 @@ def train():
 
     # Move testing data to GPU
     render_poses = torch.Tensor(render_poses).to(device)
-    render_times = torch.Tensor(render_times).to(device)
+    if args.use_latent_codes_as_time:
+        render_times = [t.to(device) for t in render_times]
+    else:
+        render_times = torch.Tensor(render_times).to(device)
 
     # Short circuit if only rendering out from trained model
     if args.render_only:
@@ -1064,6 +1071,7 @@ def train():
     if use_batching:
         rays_rgb = torch.Tensor(rays_rgb).to(device)
     # FIXME P vielleicht auch ray_bending_latent_codes auf GPU
+    ray_bending_latents_list = [l_vec.to(device) for l_vec in ray_bending_latents_list]
 
     #################### Training loop ####################
 
@@ -1306,10 +1314,14 @@ def train():
                 debug_rays = True
                 ray_debug_path = os.path.join(basedir, expname, f"step_{i:06d}_")
                 img_i = 0
+
             target = images[img_i]
- 
             pose = poses[img_i, :3,:4]
-            frame_time = times[img_i]
+            if args.use_latent_codes_as_time:
+                frame_time = ray_bending_latents_list[img_i]
+            else:
+                frame_time = times[img_i]
+
             with torch.no_grad():
                 rgb, disp, acc, depth, extras = render(H, W, focal_x, focal_y, chunk=args.chunk, c2w=pose, frame_time=frame_time, debug_rays=debug_rays,
                                                     ray_debug_path=ray_debug_path, **render_kwargs_test)
