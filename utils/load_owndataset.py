@@ -12,6 +12,7 @@ import OpenEXR as exr
 import Imath
 
 from utils.load_blender import trans_t, rot_phi, rot_theta
+#from load_blender import trans_t, rot_phi, rot_theta
 
 #TODO: Set render_poses correct, maybe even test_poses
 
@@ -150,6 +151,9 @@ def extract_owndataset_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
             f_x = K_matrix[0]
             f_y = K_matrix[4]
 
+            H = np.array(metas["h"]).astype(np.float32)
+            W = np.array(metas["w"]).astype(np.float32)
+
             #init_pose = np.array(metas["initPose"]).astype(np.float32)
             #transform_matrix = quat_and_trans_2_trans_matrix(init_pose) #J: i think it is in m
             #transform_matrix[2, 3] = SCENE_OBJECT_DEPTH #FIXME J: To set training cam higher
@@ -184,8 +188,8 @@ def extract_owndataset_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
             rgb_dir.mkdir(parents=True, exist_ok=True)
             d_dir.mkdir(exist_ok=True)
             transforms = {
-                "camera_angle_x": 2 * np.arctan(680/(2*f_x)),        # AOV in x dimension; height and width are fixed in DeepDeform
-                "camera_angle_y": 2 * np.arctan(480/(2*f_y)),        # AOV in y dimension
+                "camera_angle_x": 2 * np.arctan(W/(2*f_x)),        # AOV in x dimension; height and width are fixed in DeepDeform
+                "camera_angle_y": 2 * np.arctan(H/(2*f_y)),        # AOV in y dimension
                 "SCENE_OBJECT_DEPTH_at_extraction": SCENE_OBJECT_DEPTH,
                 "frames": []
             }
@@ -292,7 +296,7 @@ def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="
     camera_angle_x = float(meta['camera_angle_x'])      # horizontal AOV
     camera_angle_y = float(meta['camera_angle_y'])      # horizontal AOV
     focal_x = .5 * W / np.tan(.5 * camera_angle_x)        # focal length
-    focal_y = .5 * W / np.tan(.5 * camera_angle_y)
+    focal_y = .5 * H / np.tan(.5 * camera_angle_y)
 
     # set the (novel) poses that are used to render novel views. Take them from the file, if given, else compute them from a sphere.
     if os.path.exists(os.path.join(basedir, 'transforms_{}.json'.format('render'))):

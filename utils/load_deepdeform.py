@@ -205,7 +205,7 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1, render_pose_type="
     camera_angle_x = float(meta['camera_angle_x'])      # horizontal AOV
     camera_angle_y = float(meta['camera_angle_y'])      # horizontal AOV
     focal_x = .5 * W / np.tan(.5 * camera_angle_x)      # focal length
-    focal_y = .5 * W / np.tan(.5 * camera_angle_y)
+    focal_y = .5 * H / np.tan(.5 * camera_angle_y)
 
     # set the (novel) poses that are used to render novel views. Take them from the file, if given, else compute them from a sphere.
     if os.path.exists(os.path.join(basedir, 'transforms_{}.json'.format('render'))):
