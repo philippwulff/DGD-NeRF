@@ -105,6 +105,28 @@ def pose_spiral(theta, z_cam, z_cam_glob, H, W):
     radius = np.sqrt(x_w**2 + y_w**2 + z_w**2)
     c2w = pose_spherical2(alpha, beta, radius)
     return c2w#, (x_w, y_w, z_w)
+
+def pose_static(i,pose):
+    """Returns static camera pose of selected pose
+
+    Args:
+        i (int): counter for frame index
+        pose: shape 4x4
+    """
+    return pose
+
+def poses_original_trajectory():
+    """Returns poses from not used frames of the original video
+    """
+    with open("data/EXR_RGBD" + "/metadata.json", "r") as f:
+        metas = json.load(f)
+        
+        poses = np.array(metas["poses"]).astype(np.float32)
+        poses = poses[2::int(60/FPS)]
+
+        return poses
+
+
 def extract_owndataset_data(datadir, scene_name, start_frame_i=0, end_frame_i=None, step=1, train_p=0.7, val_p=0.15, test_p=0.15):
     """Converts a given sequence from the DeepDeform dataset to the required format.
     Download DeepDeform at: https://github.com/AljazBozic/DeepDeform
@@ -273,9 +295,10 @@ def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="
         depth_maps = (np.array(depth_maps)).astype(np.float32)  # convert mm to m
         poses = (np.array(poses)).astype(np.float32)
 
-        #scaling_factor = np.max(np.abs(poses[:,:3,3]))  #convert to have poses in unit cube [-1,1]^3
-        #depth_maps /= scaling_factor                    #convert to have same unit as in poses
-        #poses[:, 0:3, 3] /= scaling_factor         
+        scaling_factor = np.max(np.abs(poses[:,:3,3]))  #convert to have poses in unit cube [-1,1]^3
+        depth_maps /= scaling_factor                    #convert to have same unit as in poses
+        poses[:, 0:3, 3] /= scaling_factor
+
         times = np.array(times).astype(np.float32)
         counts.append(counts[-1] + imgs.shape[0])
         all_imgs.append(imgs)
@@ -309,12 +332,18 @@ def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="
         render_poses = np.array(render_poses).astype(np.float32)
 
     else:
-
         if render_pose_type == "spherical":
-            render_poses = torch.stack([pose_spherical2(0, angle, SCENE_OBJECT_DEPTH) for angle in np.linspace(0,90,120)], 0)       # changed from (-180,180,40+1)
+            render_poses = torch.stack([pose_spherical2(0, angle, SCENE_OBJECT_DEPTH) for angle in np.linspace(0,90,101)], 0)       # changed from (-180,180,40+1)
+            render_poses[:, 0:3, 3] /= scaling_factor # scale render_poses as poses        
         elif render_pose_type == "spiral": 
             render_poses = torch.stack([pose_spiral(angle, z_cam_dist, SCENE_OBJECT_DEPTH, H, W) for angle, z_cam_dist in              
-                                        zip(np.linspace(0, 2*360, 120), np.linspace(0, -SCENE_OBJECT_DEPTH, 120))], 0)
+                                        zip(np.linspace(0, 2*360, 101), np.linspace(0, -SCENE_OBJECT_DEPTH*0.5, 101))], 0)
+            render_poses[:, 0:3, 3] /= scaling_factor # scale render_poses as poses
+        elif render_pose_type == "static":
+            render_poses = torch.stack([pose_static(i,torch.tensor(poses[0,:,:])) for i in range(101)],0) #FIXME J: not tested
+        elif render_pose_type == "original_trajectory": 
+            render_poses = torch.tensor(poses_original_trajectory())
+            render_poses[:, 0:3, 3] /= scaling_factor # scale render_poses as poses #FIXME J: Not tested
 
     render_times = torch.linspace(0., 1., render_poses.shape[0])
     
@@ -338,9 +367,6 @@ def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="
 
 if __name__ == "__main__":
     print("EXTRACTING DATA")
-    # extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq120", "office")
-    # extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq045", "human", end_frame_i=200)
-    # extract_deepdeform_data("/mnt/raid/kirwul/deepdeform/train/seq150", "bag")
     extract_owndataset_data("data/EXR_RGBD", "johannes_2")
     #exit(0)
 

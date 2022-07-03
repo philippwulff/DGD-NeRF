@@ -1,14 +1,16 @@
-expname = human_17_mse_larger_weight
+expname = human_19_mse_dgs
 basedir = ./logs
 datadir = ./data/human
 dataset_type = deepdeform           
 
 nerf_type = direct_temporal
 no_batching = True
-not_zero_canonical = False
+
+depth_loss_type = mse
+depth_loss_weight = 0.1
+use_depth_guided_sampling=True
 
 use_viewdirs = False
-white_bkgd = False
 lrate_decay = 500
 
 N_iter = 800000
@@ -25,9 +27,6 @@ half_res = True
 do_half_precision = False
 
 i_img = 10000
-depth_loss_type = mse
-depth_loss_weight = 0.1
-use_depth_guided_sampling=False
 
 no_reload = False
 render_pose_type = spiral

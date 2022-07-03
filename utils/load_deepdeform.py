@@ -136,6 +136,8 @@ def extract_deepdeform_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
 
 def load_deepdeform_data(basedir, half_res=False, testskip=1, render_pose_type="spherical"):
     """Returns extracted DeepDeform data in compatible format. All output lengths are in meters.
+    This method was tested with scene 45 in DeepDeform and other scenes may require finding other 
+    "good" distances for training and testing cameras.
 
     Args:
         basedir (str): Path to dataset.
@@ -182,9 +184,12 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1, render_pose_type="
 
         imgs = (np.array(imgs) / 255.).astype(np.float32)  # .jpg has 3 channels -> RGB
         depth_maps = (np.array(depth_maps)).astype(np.float32)  
-        depth_maps /= depth_maps.max() * 0.5       # convert depth from mm to [0, 2]
+        depth_maps /= 255.
+        # depth_maps /= depth_maps.max() * 0.5       # convert depth from mm to [0, 2]
         poses = (np.array(poses)).astype(np.float32)
-        poses[:, 0:3, 3] = poses[:, 0:3, 3] / (SCENE_OBJECT_DEPTH*1000)    # convert x,y,z from mm to [-1,1]
+        # IMPORTANT: hardcode such that all positions are at 6 in z dir
+        poses[:, 0:3, 3] = (poses[:, 0:3, 3] / 1000) * 4
+        # poses[:, 0:3, 3] = poses[:, 0:3, 3] / (SCENE_OBJECT_DEPTH*1000)    # convert x,y,z from mm to [-1,1]
         times = np.array(times).astype(np.float32)
         counts.append(counts[-1] + imgs.shape[0])
         all_imgs.append(imgs)
@@ -218,10 +223,11 @@ def load_deepdeform_data(basedir, half_res=False, testskip=1, render_pose_type="
 
     else:
         if render_pose_type == "spherical":
-            render_poses = torch.stack([pose_spherical2(0, angle, 1) for angle in np.linspace(-20,20,120+1)], 0)       # changed from (-180,180,40+1)
+            # IMPORTANT: hardcoded 6. as render camera position in z dir
+            render_poses = torch.stack([pose_spherical2(0, angle, 6.) for angle in np.linspace(-20,20,120+1)], 0)       # changed from (-180,180,40+1)
         elif render_pose_type == "spiral": 
-            render_poses = torch.stack([pose_spiral(angle, z_cam_dist, 1, H, W) for angle, z_cam_dist in              
-                                        zip(np.linspace(0, 2*360, 120), np.linspace(0, -0.5, 120))], 0)
+            render_poses = torch.stack([pose_spiral(angle, z_cam_dist, 6., H, W) for angle, z_cam_dist in              
+                                        zip(np.linspace(0, 2*360, 120), np.linspace(0, -3, 120))], 0)
 
     render_times = torch.linspace(0., 1., render_poses.shape[0])
     

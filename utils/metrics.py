@@ -2,6 +2,7 @@ import lpips
 import torch
 import math
 
+import torch.nn.functional as F
 
 # Mean Square Error
 class MSE(object):
@@ -111,3 +112,11 @@ class LPIPS(object):
         return torch.mean(error)
 
 
+class RMSE(object):
+    '''
+    Calculate Root-Mean-Squared Error
+    '''
+    def __call__(self, pred, gt):
+        mse = torch.mean((pred - gt) ** 2)
+        rmse = torch.sqrt(mse)
+        return rmse

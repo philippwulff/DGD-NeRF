@@ -60,3 +60,11 @@ def draw_ray(ray_ori, ray_dir, coarse, fine, depth, near, far, ax, coarse_c="ora
     ax.scatter(fine[:,0], fine[:,1], fine[:,2], color=fine_c, s=5)
     depth = ray_ori + depth * ray_dir
     ax.scatter(depth[0], depth[1], depth[2], color="black", marker="v", s=50)
+
+
+def nearest_train_index(val_time: float, train_times: list):
+    """Returns the index the image in the train set closest to the validation time."""
+    assert 0 <= val_time <= 1, "Evaluation time cannot be outside of [0, 1]."
+    assert len(train_times) > 0, "No training times."
+    train_index = int(round(val_time * (len(train_times)-1), 0))
+    return train_index

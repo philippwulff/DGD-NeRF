@@ -8,9 +8,10 @@ import json
 import pickle
 from collections import defaultdict
 import configargparse
+import cv2
 
 from run_dnerf_helpers import *
-from utils import load_blender_data, load_deepdeform_data, load_owndataset_data
+from utils import * # load_blender_data, load_deepdeform_data, load_owndataset_data, 
 
 try:
     from apex import amp            
@@ -220,8 +221,8 @@ def render(H, W, focal_x, focal_y, chunk=1024*32, rays=None, c2w=None, ndc=True,
     return ret_list + [ret_dict]
 
 
-def render_path(render_poses, render_times, hwff, chunk, render_kwargs, gt_imgs=None, savedir=None,
-                render_factor=0, save_also_gt=False, i_offset=0, ray_bending_latent_codes=None):
+def render_path(render_poses, render_times, hwff, chunk, render_kwargs, gt_imgs=None, gt_depths=None, savedir=None,
+                render_factor=0, save_also_gt=False, i_offset=0, ray_bending_latent_codes=None, expname=None):
     """Render images at the given camera poses and times.
     Args:
         render_poses: array of poses to be rendered.
@@ -248,32 +249,45 @@ def render_path(render_poses, render_times, hwff, chunk, render_kwargs, gt_imgs=
     if savedir is not None:
         save_dir_estim = os.path.join(savedir, "estim")
         save_dir_gt = os.path.join(savedir, "gt")
+        save_dir_estim_depth = os.path.join(savedir, "estim_depth")
+        save_dir_gt_depth = os.path.join(savedir, "gt_depth")
         if not os.path.exists(save_dir_estim):
             os.makedirs(save_dir_estim)
         if save_also_gt and not os.path.exists(save_dir_gt):
             os.makedirs(save_dir_gt)
+        if not os.path.exists(save_dir_estim_depth):
+            os.makedirs(save_dir_estim_depth)
+        if save_also_gt and not os.path.exists(save_dir_gt_depth):
+            os.makedirs(save_dir_gt_depth)
 
     rgbs = []
+    rgbs_gt = []
     disps = []
+    depths = []
+    depths_gt = []
 
     for i, (c2w, frame_time) in enumerate(zip(tqdm(render_poses), render_times)):
         rgb, disp, acc, depth, _ = render(H, W, focal_x, focal_y, chunk=chunk, c2w=c2w[:3,:4], frame_time=frame_time, **render_kwargs)
+        rgb_gt = gt_imgs[i]
+        rgb = torch.clamp(rgb,0,1)
+        rgb_gt = np.clip(rgb_gt,0,1)
+        depth_gt = gt_depths[i].squeeze()
+
         rgbs.append(rgb.cpu().numpy())
+        rgbs_gt.append(rgb_gt)
         disps.append(disp.cpu().numpy())
+        depths.append(depth.cpu().numpy())
+        depths_gt.append(depth_gt)
+    rgbs = np.stack(rgbs)
+    rgbs_gt = np.stack(rgbs_gt)
+    depths = np.stack(depths)
+    depth_gt = np.stack(depths_gt)
+    disps = np.stack(disps)
+    if save_also_gt:
+        files_dir = "./logs/" + expname + "/renderonly_test_399999/" #FIXME J: make number not hardcoded
+        compute_metrics(files_dir, rgbs, rgbs_gt, depths, depths_gt)
 
-        if savedir is not None:
-            rgb8_estim = to8b(rgbs[-1])
-            filename = os.path.join(save_dir_estim, '{:03d}.png'.format(i+i_offset))
-            imageio.imwrite(filename, rgb8_estim)
-            if save_also_gt:
-                rgb8_gt = to8b(gt_imgs[i])
-                filename = os.path.join(save_dir_gt, '{:03d}.png'.format(i+i_offset))
-                imageio.imwrite(filename, rgb8_gt)
-
-    rgbs = np.stack(rgbs, 0)        # Predicted RGB values
-    disps = np.stack(disps, 0)      # Disparity map. Inverse of depth.
-
-    return rgbs, disps
+    return rgbs, disps, depths
 
 
 def create_nerf(args, autodecoder_variables=None):
@@ -463,10 +477,6 @@ def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, white_bkgd=False, pytest=F
     rgb_map = torch.sum(weights[...,None] * rgb, -2)  # [N_rays, 3]
 
     depth_map = torch.sum(weights * z_vals, -1)
-    # print("===HERE===") #FIXME J:Delete
-    # print((raw[...,3] + noise).shape)
-    # print(raw[...,3] + noise)
-    # FIXME delete until here
     depth_std_map = ((((z_vals - depth_map.unsqueeze(-1)).pow(2) * weights).sum(-1)) + 1e-6).sqrt()     
     disp_map = 1./torch.max(1e-10 * torch.ones_like(depth_map), depth_map / torch.sum(weights, -1))
     acc_map = torch.sum(weights, -1)
@@ -813,7 +823,7 @@ def config_parser():
     parser.add_argument("--render_factor", type=int, default=0, 
                         help='downsampling factor to speed up rendering, set 4 or 8 for fast preview')
     parser.add_argument("--render_pose_type", type=str, default="spherical",
-                        help='render poses spherical or spiral')
+                        help='render poses spherical or spiral or static or original_trajectory')
 
     # training options
     parser.add_argument("--N_iter", type=int, default=500000,
@@ -963,6 +973,8 @@ def train():
         print("[WARNING] No depth maps loaded. Cannot apply depth loss. Exiting.")
         return
 
+    print(f"[Info] Experiment name: {args.expname}")
+
     #################### Set up training ####################
 
     # Cast intrinsics to right types
@@ -1027,21 +1039,24 @@ def train():
         with torch.no_grad():
             if args.render_test:
                 # render_test switches to test poses
-                images = images[i_test] #TODO J: Do we want to also generate a depth video? Then render_path also needs to return depth
+                images = images[i_test]
+                gt_depths = depth_maps[i_test]
                 save_also_gt = True
             else:
                 # Default is smoother render_poses path
                 images = None
+                gt_depths = None
                 save_also_gt = False
 
             testsavedir = os.path.join(basedir, expname, 'renderonly_{}_{:06d}'.format('test' if args.render_test else 'path', start))
             os.makedirs(testsavedir, exist_ok=True)
             print('[Info] Test poses shape:', render_poses.shape)
 
-            rgbs, _ = render_path(render_poses, render_times, hwff, args.chunk, render_kwargs_test, gt_imgs=images,
-                                  savedir=testsavedir, render_factor=args.render_factor, save_also_gt=save_also_gt)
+            rgbs, _, depths = render_path(render_poses, render_times, hwff, args.chunk, render_kwargs_test, gt_imgs=images,
+                                  gt_depths=gt_depths, savedir=testsavedir, render_factor=args.render_factor, save_also_gt=save_also_gt, expname=args.expname)
             print('[Info] Saving rendering to:', testsavedir)
-            imageio.mimwrite(os.path.join(testsavedir, 'video_{}.mp4'.format('spherical' if args.render_pose_type=="spherical" else 'spiral')), to8b(rgbs), fps=30, quality=8)
+            imageio.mimwrite(os.path.join(testsavedir, 'video_{}.mp4'.format(args.render_pose_type)), to8b(rgbs), fps=15, quality=8)
+            imageio.mimwrite(os.path.join(testsavedir, 'video_depth_{}.mp4'.format(args.render_pose_type)), to8b(depths/np.max(depths)), fps=15, quality=8)
             return
 
     # Prepare raybatch tensor if batching random rays
@@ -1148,7 +1163,8 @@ def train():
                 batch_rays = torch.stack([rays_o, rays_d], 0) # (2, N_rand, 3)
                 if comp_depth:
                     target_depth_s = target_depth[select_coords[:, 0], select_coords[:, 1]] # (N_rand, 1) 
-                    target_stds = torch.full(target_depth.shape, 0.1)       #FIXME set a good std
+                    # IMPORTANT: The input depth std is hardcoded here!!!
+                    target_stds = torch.full(target_depth.shape, 0.03)       
                     target_stds_s = target_stds[select_coords[:, 0], select_coords[:, 1]]
                     if args.use_depth_guided_sampling:
                         depth_range = comp_depth_sampling(target_depth_s, target_stds_s)
@@ -1249,7 +1265,7 @@ def train():
 
         # Save network weights checkpoint
         if i%args.i_weights == 0:     
-            all_latents = torch.zeros(0)
+            all_latents = torch.zeros(0).cpu()
             for l in ray_bending_latents_list:
                 all_latents = torch.cat([all_latents, l.cpu().unsqueeze(0)], 0)  
 
@@ -1312,13 +1328,10 @@ def train():
             # if args.use_latent_codes_as_time:
             #     img_i = np.random.choice(len([l for l in ray_bending_latents_list if torch.nonzero((l))]))
             # else:
-            img_i = np.random.choice(i_val)
-            debug_rays = False
-            ray_debug_path = ""
-            if i%(5 * args.i_img) == 0 and DEBUG:       # every 5*i_img steps val on the same img
-                debug_rays = True
-                ray_debug_path = os.path.join(basedir, expname, f"step_{i:06d}_")
-                img_i = 0
+            
+            # === Image from Training Set ===
+
+            img_i = np.random.choice(i_train)
 
             target = images[img_i]
             pose = poses[img_i, :3,:4]
@@ -1326,6 +1339,48 @@ def train():
                 frame_time = ray_bending_latents_list[img_i]
             else:
                 frame_time = times[img_i]
+
+            with torch.no_grad():
+                rgb, disp, acc, depth, extras = render(H, W, focal_x, focal_y, chunk=args.chunk, c2w=pose, frame_time=frame_time, debug_rays=False, **render_kwargs_test)
+
+            if depth_maps is not None:
+                target_depth = depth_maps[img_i].squeeze()
+   
+            writer.add_image('train_1_rgb_gt', to8b(target.cpu().numpy()), i, dataformats='HWC')
+            writer.add_image('train_2_rgb', to8b(rgb.cpu().numpy()), i, dataformats='HWC')
+            writer.add_image('train_3_disp', disp.cpu().numpy(), i, dataformats='HW')
+            writer.add_image('train_4_acc', acc.cpu().numpy(), i, dataformats='HW')
+            if depth_maps is not None:
+                writer.add_image('train_5_depth_gt', target_depth.cpu().numpy(), i, dataformats='HW')
+                writer.add_image('train_6_depth', depth.cpu().numpy(), i, dataformats='HW')
+
+            if 'rgb0' in extras:
+                writer.add_image('train_7_rgb_rough', to8b(extras['rgb0'].cpu().numpy()), i, dataformats='HWC')
+            if 'disp0' in extras:
+                writer.add_image('train_8_disp_rough', extras['disp0'].cpu().numpy(), i, dataformats='HW')
+            if 'depth0' in extras:
+                writer.add_image('train_9_depth_rough', extras['depth0'].cpu().numpy(), i, dataformats='HW')
+            if 'z_std' in extras:
+                writer.add_image('train_10_acc_rough', extras['z_std'].cpu().numpy(), i, dataformats='HW')
+
+            writer.flush()
+
+            # === Image from Validation Set ===
+            img_i = np.random.choice(i_val)
+            debug_rays = False
+            ray_debug_path = ""
+            if i%(5 * args.i_img) == 0 and DEBUG:       # every 5*i_img steps val on the same img
+                debug_rays = True
+                ray_debug_path = os.path.join(basedir, expname, f"step_{i:06d}_")
+                img_i = i_val[-1]           # just alway use the last val frame
+
+            target = images[img_i]
+            pose = poses[img_i, :3,:4]
+            if args.use_latent_codes_as_time:
+                # get ray bending latent code from nearest train image
+                frame_time = ray_bending_latents_list[nearest_train_index(times[img_i].item(), [times[_] for _ in i_train])]
+            else:
+                frame_time = times[img_i]       # FIXME this should be render_times?
 
             with torch.no_grad():
                 rgb, disp, acc, depth, extras = render(H, W, focal_x, focal_y, chunk=args.chunk, c2w=pose, frame_time=frame_time, debug_rays=debug_rays,
@@ -1371,31 +1426,36 @@ def train():
 
             writer.flush()
 
+            del loss, img_loss, psnr
+            if args.depth_loss_weight > 0:
+                del depth_loss
+            del rgb, disp, acc, extras
+
         # Render novel view video
         if i%args.i_video==0:       
             
             print("[Info] Rendering video...")
             with torch.no_grad():
                 savedir = os.path.join(basedir, expname, 'frames_{}_spiral_{:06d}_time/'.format(expname, i))
-                rgbs, disps = render_path(render_poses, render_times, hwff, args.chunk, render_kwargs_test, savedir=savedir)
+                rgbs, disps, depths = render_path(render_poses, render_times, hwff, args.chunk, render_kwargs_test, savedir=savedir)
             print('[Info] Done, saving', rgbs.shape, disps.shape)
             moviebase = os.path.join(basedir, expname, '{}_spiral_{:06d}_'.format(expname, i))
-            imageio.mimwrite(moviebase + 'rgb.mp4', to8b(rgbs), fps=30, quality=8)
-            imageio.mimwrite(moviebase + 'disp.mp4', to8b(disps / np.max(disps)), fps=30, quality=8)
+            imageio.mimwrite(moviebase + 'rgb.mp4', to8b(rgbs), fps=15, quality=8)
+            imageio.mimwrite(moviebase + 'disp.mp4', to8b(disps / np.max(disps)), fps=15, quality=8)
 
             # if args.use_viewdirs:
             #     render_kwargs_test['c2w_staticcam'] = render_poses[0][:3,:4]
             #     with torch.no_grad():
             #         rgbs_still, _ = render_path(render_poses, hwf, args.chunk, render_kwargs_test)
             #     render_kwargs_test['c2w_staticcam'] = None
-            #     imageio.mimwrite(moviebase + 'rgb_still.mp4', to8b(rgbs_still), fps=30, quality=8)
+            #     imageio.mimwrite(moviebase + 'rgb_still.mp4', to8b(rgbs_still), fps=15, quality=8)
 
         if i%args.i_testset==0:
             testsavedir = os.path.join(basedir, expname, 'testset_{:06d}'.format(i))
             print('[Info] Testing poses shape...', poses[i_test].shape)
             with torch.no_grad():
                 render_path(torch.Tensor(poses[i_test]).to(device), torch.Tensor(times[i_test]).to(device),
-                            hwff, args.chunk, render_kwargs_test, gt_imgs=images[i_test], savedir=testsavedir)
+                            hwff, args.chunk, render_kwargs_test, gt_imgs=images[i_test], gt_depths=depth_maps[i_test], savedir=testsavedir)
             print('[Info] Saved test set')
 
         global_step += 1

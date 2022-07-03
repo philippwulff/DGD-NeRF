@@ -1,4 +1,4 @@
-expname = human_debug
+expname = human_19_mse_dgs
 basedir = ./logs
 datadir = ./data/human
 dataset_type = deepdeform           
@@ -10,7 +10,7 @@ not_zero_canonical = False
 use_depth_guided_sampling = True
 depth_loss_type = mse
 depth_loss_weight = 0.005
-use_latent_codes_as_time = True
+use_latent_codes_as_time = False
 
 
 use_viewdirs = False
@@ -33,5 +33,5 @@ do_half_precision = False
 i_img = 100
 i_video = 5000
 
-no_reload = True
+no_reload = False
 render_pose_type = spiral

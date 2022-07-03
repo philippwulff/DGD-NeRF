@@ -11,42 +11,39 @@ This project is an extension of [D-NeRF](https://github.com/albertpumarola/D-NeR
 ```
 git clone https://github.com/philippwulff/D-NeRF.git
 cd D-NeRF
-conda create -n dnerf python=3.6
-conda activate dnerf
+conda create -n dgdnerf python=3.6
+conda activate dgdnerf
 pip install -r requirements.txt
 ```
 
-### Download Pre-trained Weights
- You can download the pre-trained models from [drive](https://drive.google.com/file/d/1VN-_DkRLL1khDVScQJEaohpbA2gC2I2K/view?usp=sharing) or [dropbox](https://www.dropbox.com/s/25sveotbx2x7wap/logs.zip?dl=0). Unzip the downloaded data to the project root dir in order to test it later. See the following directory structure for an example:
+If you want to directly explore the models or use our training data, you can download pre-trained models and the data:
+
+**Download Pre-trained Weights**. You can download the pre-trained models from [drive](https://drive.google.com/file/d/1VN-_DkRLL1khDVScQJEaohpbA2gC2I2K/view?usp=sharing) or [dropbox](https://www.dropbox.com/s/25sveotbx2x7wap/logs.zip?dl=0). Unzip the downloaded data to the project root dir in order to test it later. This is what the directory structure looks like:
 ```
 ├── logs 
-│   ├── mutant
-│   ├── standup 
+│   ├── human
+│   ├── johannes 
 │   ├── ...
 ```
 
-### Download Datasets
-
+*Download Datasets*
 **DeepDeform**. This is a RGB-D dataset of dynamic scenes with fixed camera poses. You can request access on the project's [GitHub page](https://github.com/AljazBozic/DeepDeform).
+**Own Data**. Download from [here](https://drive.google.com/drive/folders/1hUv1UZfxtmqVtushTH2_obexMv7mVu8L?usp=sharing).
 
-**Own Data** TODO
+## How to Use It
 
-## Usage
+If you have downloaded the pre-trained, you can test models without training them. Otherwise, download our or you own data to train a model.
+
 ### Demo
-We provide simple jupyter notebooks to explore the model. To use them first download the pre-trained weights and dataset.
+You can use these jupyter notebooks to explore the model.
 
 | Description      | Jupyter Notebook |
 | ----------- | ----------- |
-| Synthesize novel views at an arbitrary point in time. | render.ipynb|
-| Reconstruct mesh at an arbitrary point in time. | reconstruct.ipynb|
-| Quantitatively evaluate trained model. | metrics.ipynb|
-
-### Test
-First download pre-trained weights and dataset. Then, 
-```
-python run_dnerf.py --config configs/mutant.txt --render_only --render_test
-```
-This command will run the `mutant` experiment. When finished, results are saved to `./logs/mutant/renderonly_test_799999` To quantitatively evaluate model run `metrics.ipynb` notebook
+| Synthesize novel views at an arbitrary point in time. (Requires trained model) | render.ipynb|
+| Reconstruct the mesh at an arbitrary point in time. (Requires trained model) | reconstruct.ipynb|
+| Quantitatively evaluate trained models. | metrics.ipynb|
+| See the camera trajectory of the training frames or novel views. | eda_virtual_camera.ipynb|
+| Visualize the sampling along camera rays. (Requires training logs) | eda_ray_sampling.ipynb|
 
 ### Train
 First download the dataset. Then,
@@ -57,16 +54,52 @@ export CUDA_VISIBLE_DEVICES=0
 python run_dnerf.py --config configs/mutant.txt
 ```
 
+### Test
+First download pre-trained weights and dataset. Then, 
+```
+python run_dnerf.py --config configs/johannes.txt --render_only --render_test
+```
+This command will run the `johannes` experiment. When finished, results are saved to `./logs/johannes/renderonly_test_799999`. To quantitatively evaluate model run the `metrics.ipynb` notebook.
+
 ## Citation
-If you use this code or ideas from the paper for your research, please cite our paper and the works we rely on:
+If you use this code or ideas from the paper for your research, please cite us and the works we rely on:
   
 ```
-TODO
-
 @article{pumarola2020d,
   title={D-NeRF: Neural Radiance Fields for Dynamic Scenes},
   author={Pumarola, Albert and Corona, Enric and Pons-Moll, Gerard and Moreno-Noguer, Francesc},
   journal={arXiv preprint arXiv:2011.13961},
   year={2020}
 }
+@inproceedings{roessle2022depthpriorsnerf,
+    title={Dense Depth Priors for Neural Radiance Fields from Sparse Input Views}, 
+    author={Barbara Roessle and Jonathan T. Barron and Ben Mildenhall and Pratul P. Srinivasan and Matthias Nie{\ss}ner},
+    booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+    month={June},
+    year={2022}
+@misc{tretschk2020nonrigid,
+      title={Non-Rigid Neural Radiance Fields: Reconstruction and Novel View Synthesis of a Dynamic Scene From Monocular Video},
+      author={Edgar Tretschk and Ayush Tewari and Vladislav Golyanik and Michael Zollhöfer and Christoph Lassner and Christian Theobalt},
+      year={2020},
+      eprint={2012.12247},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV}
+}
 ```
+
+
+# Schedule
+
+|  | GPU1 | GPU2 |
+| :---: | :---: | :---: |
+| Mi, 16:00 | Johannes scene w/ dnerf ✅ | Johannes scene w/ mse loss ✅ |
+| Do, 16:00 | Johannes scene w/ dgs not hardcoded ✅ | Johannes scene w/ mse loss + dgs not hardcoded ✅ |
+| Fr, 16:00 | Johannes scene w/ rigidity network | Johannes scene w/ gnll loss |
+| Sa, 16:00 | Johannes scene w/ latent codes | Johannes scene w/ rigidity network |
+| So, 16:00 | ... | ... |
+| Mo, 16:00 | ... | ... |
+| Di, 16:00 | ... | ... |
+
+
+TODO
+- larger N_rand -> batch_size

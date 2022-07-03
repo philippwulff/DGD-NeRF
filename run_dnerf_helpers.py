@@ -8,7 +8,10 @@ import numpy as np
 # supported in pytorch now: https://github.com/aliutkus/torchsearchsorted/issues/24
 from torch import searchsorted
 import math
+import imageio
+import os
 
+from utils.metrics import MSE, PSNR, SSIM, LPIPS, RMSE
 
 # Misc
 img2mse = lambda x, y : torch.mean((x - y) ** 2)
@@ -23,7 +26,7 @@ def depth2mse(depth, target_depth):
     return torch.mean((depth[inds_nonzero] - target_depth[inds_nonzero]) ** 2)
 
 
-def depth2gnll(depth, target_depth, depth_std, target_depth_std=0.01): #TODO J: find out target_depth_std and in which unit depth is given
+def depth2gnll(depth, target_depth, depth_std, target_depth_std=0.015): #TODO J: find out target_depth_std and in which unit depth is given
     """
     Calculate Gaussian Negative Log Likelihood Loss over valid depth rays.
     Calculate only if 
@@ -36,14 +39,14 @@ def depth2gnll(depth, target_depth, depth_std, target_depth_std=0.01): #TODO J: 
     inds_valid = torch.logical_or(inds_depth_prediction, inds_depth_std_prediction)
     inds_valid = torch.logical_and(inds_nonzero, inds_valid)
 
-    depth = depth[inds_valid] 
-    target_depth = target_depth[inds_valid] 
-    depth_std = depth_std[inds_valid]
-    depth_var = depth_std**2
+    depth_valid = depth[inds_valid] 
+    target_depth_valid = target_depth[inds_valid] 
+    depth_std_valid = depth_std[inds_valid]
+    depth_var_valid = depth_std_valid**2
 
-    f = nn.GaussianNLLLoss(eps=0.001)
+    f = nn.GaussianNLLLoss(full=True,eps=1e-5)
 
-    return f(depth, target_depth, depth_var)
+    return f(depth_valid, target_depth_valid, depth_var_valid)
 
 
 # Positional encoding (section 5.1)
@@ -538,6 +541,8 @@ def compute_samples_around_depth(raw, z_vals, rays_d, N_samples, perturb, lower_
     """Computes samples within 3 sigma from the predicted depth."""
     sampling_depth, sampling_std = raw2depth(raw, z_vals, rays_d, device)
     sampling_std = sampling_std.clamp(min=lower_bound)
+    # IMPORTANT: Hardcode the std here
+    # sampling_std = torch.full_like(sampling_std, 0.03)
     depth_min = sampling_depth - 3. * sampling_std
     depth_max = sampling_depth + 3. * sampling_std
     return sample_3sigma(depth_min, depth_max, N_samples, perturb == 0., near, far, device)
@@ -578,3 +583,35 @@ def comp_depth_sampling(depth, stds):
     depth_min = depth - 3. * stds   
     depth_max = depth + 3. * stds
     return torch.stack((depth, depth_min, depth_max), 1).squeeze()
+
+def estim_error(estim, gt, estim_depth, gt_depth):
+    errors = dict()
+    metric = MSE()
+    errors["mse"] = metric(estim, gt).item()
+    metric = PSNR()
+    errors["psnr"] = metric(estim, gt).item()
+    metric = SSIM()
+    errors["ssim"] = metric(estim, gt).item()
+    metric = LPIPS()
+    errors["lpips"] = metric(estim, gt).item()
+    metric = RMSE()
+    errors["depth_rmse"] = metric(estim_depth, gt_depth).item()
+    
+    return errors
+
+def save_error(errors, save_dir):
+    save_path = os.path.join(save_dir, "metrics.txt")
+    f = open(save_path,"w")
+    f.write( str(errors) )
+    f.close()
+
+def compute_metrics(files_dir, estim,gt,estim_depth,gt_depth):
+    estim = np.transpose(estim, (0, 3, 1, 2))
+    gt = np.transpose(gt, (0, 3, 1, 2))
+    estim = torch.Tensor(estim).cuda()
+    gt = torch.Tensor(gt).cuda()
+    estim_depth = torch.Tensor(estim_depth).cuda()
+    gt_depth = torch.Tensor(gt_depth).cuda()
+
+    errors = estim_error(estim, gt, estim_depth, gt_depth)
+    save_error(errors, files_dir)
