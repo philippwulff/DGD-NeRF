@@ -11,10 +11,21 @@ class Arrow3D(FancyArrowPatch):
         self._verts3d = xs, ys, zs
 
     def draw(self, renderer):
+        """For matplotlib versions before 3.5"""
         xs3d, ys3d, zs3d = self._verts3d
         xs, ys, zs = proj3d.proj_transform(xs3d, ys3d, zs3d, renderer.M)
         self.set_positions((xs[0], ys[0]), (xs[1], ys[1]))
         FancyArrowPatch.draw(self, renderer)
+
+    def do_3d_projection(self, renderer=None):
+        """For matplotlib versions after 3.5
+        https://github.com/matplotlib/matplotlib/issues/21688
+        """
+        xs3d, ys3d, zs3d = self._verts3d
+        xs, ys, zs = proj3d.proj_transform(xs3d, ys3d, zs3d, self.axes.M)
+        self.set_positions((xs[0],ys[0]),(xs[1],ys[1]))
+
+        return np.min(zs)
 
 
 def draw_transformed(c2w, ax, axes_len=1.0, edgecolor=None, **kwargs):
@@ -62,7 +73,7 @@ def draw_ray(ray_ori, ray_dir, coarse, fine, depth, near, far, ax, coarse_c="ora
     ax.scatter(depth[0], depth[1], depth[2], color="black", marker="v", s=50)
 
 
-def nearest_train_index(val_time: float, train_times: list):
+def get_nearest_train_index(val_time: float, train_times: list):
     """Returns the index the image in the train set closest to the validation time."""
     assert 0 <= val_time <= 1, "Evaluation time cannot be outside of [0, 1]."
     assert len(train_times) > 0, "No training times."

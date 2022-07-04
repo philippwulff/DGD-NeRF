@@ -11,7 +11,7 @@ This project is an extension of [D-NeRF](https://github.com/albertpumarola/D-NeR
 ```
 git clone https://github.com/philippwulff/D-NeRF.git
 cd D-NeRF
-conda create -n dgdnerf python=3.6
+conda create -n dgdnerf python=3.7
 conda activate dgdnerf
 pip install -r requirements.txt
 ```

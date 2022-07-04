@@ -1,4 +1,4 @@
-expname = report_johannes_11_gnll_even_smaller_weight
+expname = report_johannes_14_gnll_larger_dgs
 basedir = ./logs
 datadir = ./data/johannes
 dataset_type = owndataset           
@@ -27,13 +27,15 @@ do_half_precision = False
 i_print=1000
 i_img = 10000
 depth_loss_type = gnll
-depth_loss_weight = 0.0005
-use_depth_guided_sampling = False
+depth_loss_weight = 0.001
+use_depth_guided_sampling = True
 use_latent_codes_as_time = False
 
 no_reload = False
 render_pose_type = spherical
 use_rigidity_network = False
 
-render_only = True
-render_test = True
+render_only = False
+render_test = False
+
+slowmo=False

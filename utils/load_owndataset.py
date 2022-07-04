@@ -124,7 +124,13 @@ def poses_original_trajectory():
         poses = np.array(metas["poses"]).astype(np.float32)
         poses = poses[2::int(60/FPS)]
 
-        return poses
+        transform_matrix = np.zeros(shape=(len(poses),4,4))
+        R_z = np.array([[np.cos(np.pi), -np.sin(np.pi),0],[np.sin(np.pi), np.cos(np.pi), 0],[0,0,1]]).astype(np.float32)
+        for i in range(len(poses)):
+            transform_matrix[i] = quat_and_trans_2_trans_matrix(poses[i])
+            transform_matrix[i,2,3] += SCENE_OBJECT_DEPTH
+            transform_matrix[i,:3,:3] = transform_matrix[i,:3,:3] @ R_z # Rotate every transform_matrix 180 degree around z-axis
+        return transform_matrix
 
 
 def extract_owndataset_data(datadir, scene_name, start_frame_i=0, end_frame_i=None, step=1, train_p=0.7, val_p=0.15, test_p=0.15):
@@ -234,7 +240,7 @@ def extract_owndataset_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
                 json.dump(transforms, f, ensure_ascii=False, indent=4)
 
 
-def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="spherical"):
+def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="spherical", slowmo=False):
     """Returns extracted DeepDeform data in compatible format. All output lengths are in meters.
 
     Args:
@@ -342,10 +348,17 @@ def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="
         elif render_pose_type == "static":
             render_poses = torch.stack([pose_static(i,torch.tensor(poses[0,:,:])) for i in range(101)],0) #FIXME J: not tested
         elif render_pose_type == "original_trajectory": 
-            render_poses = torch.tensor(poses_original_trajectory())
+            render_poses = torch.tensor(poses_original_trajectory(), dtype=torch.float32)
             render_poses[:, 0:3, 3] /= scaling_factor # scale render_poses as poses #FIXME J: Not tested
 
     render_times = torch.linspace(0., 1., render_poses.shape[0])
+    if slowmo:
+        render_times_0 = torch.linspace(0., 0.35, int(render_poses.shape[0]*0.35))
+        render_times_2 = torch.linspace(0.5,0.85, int(render_poses.shape[0]*0.35))
+        render_times_1 = torch.linspace(0.35,0.5, render_poses.shape[0]-2*int(render_poses.shape[0]*0.35)) #slowmo
+        render_times = torch.cat((render_times_0, render_times_1))
+        render_times = torch.cat((render_times, render_times_2))
+        print(render_times)
     
     if half_res:
         H = H//2

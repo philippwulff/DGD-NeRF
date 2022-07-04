@@ -27,6 +27,8 @@ do_half_precision = False
 i_print=1000
 i_img = 100
 i_weights = 100
+i_testset = 100
+
 depth_loss_type = mse
 depth_loss_weight = 0.
 use_depth_guided_sampling = False

@@ -11,3 +11,4 @@ PyMCubes
 trimesh
 jupyter
 lpips
+OpenEXR

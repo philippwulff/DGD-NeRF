@@ -268,22 +268,25 @@ def render_path(render_poses, render_times, hwff, chunk, render_kwargs, gt_imgs=
 
     for i, (c2w, frame_time) in enumerate(zip(tqdm(render_poses), render_times)):
         rgb, disp, acc, depth, _ = render(H, W, focal_x, focal_y, chunk=chunk, c2w=c2w[:3,:4], frame_time=frame_time, **render_kwargs)
-        rgb_gt = gt_imgs[i]
+        
         rgb = torch.clamp(rgb,0,1)
-        rgb_gt = np.clip(rgb_gt,0,1)
-        depth_gt = gt_depths[i].squeeze()
-
         rgbs.append(rgb.cpu().numpy())
-        rgbs_gt.append(rgb_gt)
         disps.append(disp.cpu().numpy())
         depths.append(depth.cpu().numpy())
-        depths_gt.append(depth_gt)
+
+        if save_also_gt:
+            rgb_gt = gt_imgs[i]
+            rgb_gt = np.clip(rgb_gt,0,1)
+            depth_gt = gt_depths[i].squeeze()
+            rgbs_gt.append(rgb_gt)
+            depths_gt.append(depth_gt)
+
     rgbs = np.stack(rgbs)
-    rgbs_gt = np.stack(rgbs_gt)
     depths = np.stack(depths)
-    depth_gt = np.stack(depths_gt)
     disps = np.stack(disps)
     if save_also_gt:
+        rgbs_gt = np.stack(rgbs_gt)
+        depth_gt = np.stack(depths_gt)
         files_dir = "./logs/" + expname + "/renderonly_test_399999/" #FIXME J: make number not hardcoded
         compute_metrics(files_dir, rgbs, rgbs_gt, depths, depths_gt)
 
@@ -824,6 +827,8 @@ def config_parser():
                         help='downsampling factor to speed up rendering, set 4 or 8 for fast preview')
     parser.add_argument("--render_pose_type", type=str, default="spherical",
                         help='render poses spherical or spiral or static or original_trajectory')
+    parser.add_argument("--slowmo", action='store_true', 
+                        help='slow-motion effect in rendering video')
 
     # training options
     parser.add_argument("--N_iter", type=int, default=500000,
@@ -943,7 +948,7 @@ def train():
         # No RGB-to-RGBA conversion needed
 
     elif args.dataset_type == 'owndataset':
-        images, depth_maps, poses, times, render_poses, render_times, hwff, i_split = load_owndataset_data(args.datadir, args.half_res, args.testskip, args.render_pose_type)
+        images, depth_maps, poses, times, render_poses, render_times, hwff, i_split = load_owndataset_data(args.datadir, args.half_res, args.testskip, args.render_pose_type, args.slowmo)
         print(f"[Info] Loaded Own Dataset:\n\t\timages.shape: {images.shape}\n\t\trender_poses.shape: {render_poses.shape}\n\t\thwff: {hwff}\n\t\targs.datadir: {args.datadir}")
         i_train, i_val, i_test = i_split
         near = 0.1
@@ -951,6 +956,9 @@ def train():
      
         print(f"[Info] Setting near plane at distance {near} and far plane at distance {far}.")
         
+        # savedir = "data/johannes_2"
+        # imageio.mimwrite(os.path.join(savedir, 'video_depth_{}.mp4'.format("original")), to8b(depth_maps/np.max(depth_maps)), fps=15, quality=8)
+        # imageio.mimwrite(os.path.join(savedir, 'video_{}.mp4'.format("original")), to8b(images), fps=15, quality=8)
         # No RGB-to-RGBA conversion needed
 
     else:
@@ -1004,8 +1012,7 @@ def train():
     if args.use_latent_codes_as_time:
         # create autodecoder variables as pytorch tensors
         ray_bending_latents_list = [
-            torch.zeros(args.ray_bending_latent_size)
-            for _ in range(len(times))          
+            torch.zeros(args.ray_bending_latent_size) for _ in range(len(times))      # FIXME ändern zu len(i_train)
         ]
         for latent in ray_bending_latents_list:
             latent.requires_grad = True
@@ -1271,7 +1278,7 @@ def train():
 
             path = os.path.join(basedir, expname, '{:06d}.tar'.format(i))
             save_dict = {
-                'global_step': global_step,
+                'global_step': global_step + 1,     
                 'network_fn_state_dict': render_kwargs_train['network_fn'].state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'network_fine_state_dict': render_kwargs_train['network_fine'].state_dict() if render_kwargs_train['network_fine'] is not None else None,
@@ -1378,7 +1385,7 @@ def train():
             pose = poses[img_i, :3,:4]
             if args.use_latent_codes_as_time:
                 # get ray bending latent code from nearest train image
-                frame_time = ray_bending_latents_list[nearest_train_index(times[img_i].item(), [times[_] for _ in i_train])]
+                frame_time = ray_bending_latents_list[get_nearest_train_index(times[img_i].item(), [times[_] for _ in i_train])]
             else:
                 frame_time = times[img_i]       # FIXME this should be render_times?
 
@@ -1450,11 +1457,17 @@ def train():
             #     render_kwargs_test['c2w_staticcam'] = None
             #     imageio.mimwrite(moviebase + 'rgb_still.mp4', to8b(rgbs_still), fps=15, quality=8)
 
+        # Rerender images from the test set
         if i%args.i_testset==0:
             testsavedir = os.path.join(basedir, expname, 'testset_{:06d}'.format(i))
             print('[Info] Testing poses shape...', poses[i_test].shape)
             with torch.no_grad():
-                render_path(torch.Tensor(poses[i_test]).to(device), torch.Tensor(times[i_test]).to(device),
+                if args.use_latent_codes_as_time:
+                    nearest_train_i = [get_nearest_train_index(times[i_].item(), [times[_] for _ in i_train]) for i_ in i_test]
+                    testset_times = [ray_bending_latents_list[_] for _ in nearest_train_i]
+                else:
+                    testset_times = torch.Tensor(times[i_test]).to(device)
+                render_path(torch.Tensor(poses[i_test]).to(device), testset_times,
                             hwff, args.chunk, render_kwargs_test, gt_imgs=images[i_test], gt_depths=depth_maps[i_test], savedir=testsavedir)
             print('[Info] Saved test set')
 
