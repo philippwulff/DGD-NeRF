@@ -542,7 +542,7 @@ def compute_samples_around_depth(raw, z_vals, rays_d, N_samples, perturb, lower_
     sampling_depth, sampling_std = raw2depth(raw, z_vals, rays_d, device)
     sampling_std = sampling_std.clamp(min=lower_bound)
     # IMPORTANT: Hardcode the std here
-    # sampling_std = torch.full_like(sampling_std, 0.03)
+    sampling_std = torch.full_like(sampling_std, 0.03)
     depth_min = sampling_depth - 3. * sampling_std
     depth_max = sampling_depth + 3. * sampling_std
     return sample_3sigma(depth_min, depth_max, N_samples, perturb == 0., near, far, device)
