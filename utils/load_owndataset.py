@@ -16,8 +16,9 @@ from utils.load_blender import trans_t, rot_phi, rot_theta
 
 #TODO: Set render_poses correct, maybe even test_poses
 
-SCENE_OBJECT_DEPTH = 1.45         # Distance to the main object of the scene in meters
-FPS = 15
+SCENE_OBJECT_DEPTH = 0.2 # 0.35 bottle scene #1.45 johannes scene       # Distance to the main object of the scene in meters
+FPS = 30 #60 johannes scene                      # FPS of the original video
+FPS_TARGET = 6 #15 johannes scene                 # FPS which get extracted
 
 def quat_and_trans_2_trans_matrix(Q):
     """
@@ -115,14 +116,24 @@ def pose_static(i,pose):
     """
     return pose
 
-def poses_original_trajectory():
+def poses_original_trajectory(basedir):
     """Returns poses from not used frames of the original video
     """
-    with open("data/EXR_RGBD" + "/metadata.json", "r") as f:
+    if basedir=="data/johannes":
+        datadir="data/EXR_RGBD"
+    elif basedir=="data/bottle":
+        datadir="data/EXR_RGBD_s2"
+    elif basedir=="data/game":
+        datadir="data/EXR_RGBD_s3"
+    else:
+        print("Datadir not found")
+        return None
+
+    with open(datadir + "/metadata.json", "r") as f:
         metas = json.load(f)
         
         poses = np.array(metas["poses"]).astype(np.float32)
-        poses = poses[2::int(60/FPS)]
+        poses = poses[2::int(FPS/FPS_TARGET)]
 
         transform_matrix = np.zeros(shape=(len(poses),4,4))
         R_z = np.array([[np.cos(np.pi), -np.sin(np.pi),0],[np.sin(np.pi), np.cos(np.pi), 0],[0,0,1]]).astype(np.float32)
@@ -131,7 +142,6 @@ def poses_original_trajectory():
             transform_matrix[i,2,3] += SCENE_OBJECT_DEPTH
             transform_matrix[i,:3,:3] = transform_matrix[i,:3,:3] @ R_z # Rotate every transform_matrix 180 degree around z-axis
         return transform_matrix
-
 
 def extract_owndataset_data(datadir, scene_name, start_frame_i=0, end_frame_i=None, step=1, train_p=0.7, val_p=0.15, test_p=0.15):
     """Converts a given sequence from the DeepDeform dataset to the required format.
@@ -165,14 +175,14 @@ def extract_owndataset_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
 
     rgb_paths = sorted(os.listdir(os.path.join(datadir, "color")), key=get_number_only)[start_frame_i:end_frame_i:step]
     depth_paths = sorted(os.listdir(os.path.join(datadir, "depth")), key=get_number_only)[start_frame_i:end_frame_i:step]
-    rgb_paths = rgb_paths[::int(60/FPS)]          # Control fps --> original 60fps, reduced to 15fps
-    depth_paths = depth_paths[::int(60/FPS)]      # Control fps --> original 60fps, reduced to 15fps
+    rgb_paths = rgb_paths[::int(FPS/FPS_TARGET)]          # Control fps --> original 60fps, reduced to 15fps
+    depth_paths = depth_paths[::int(FPS/FPS_TARGET)]      # Control fps --> original 60fps, reduced to 15fps
     if not end_frame_i:
         end_frame_i = len(rgb_paths) - 1
     assert len(rgb_paths) == len(depth_paths), "Unequal number of RGB and depth frames."
 
 
-    with open("data/EXR_RGBD" + "/metadata.json", "r") as f:
+    with open(datadir + "/metadata.json", "r") as f:
             metas = json.load(f)
 
             K_matrix = np.array(metas["K"]).astype(np.float32)
@@ -187,7 +197,7 @@ def extract_owndataset_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
             #transform_matrix[2, 3] = SCENE_OBJECT_DEPTH #FIXME J: To set training cam higher
             
             poses = np.array(metas["poses"]).astype(np.float32)
-            poses = poses[::int(60/FPS)]
+            poses = poses[::int(FPS/FPS_TARGET)]
             
             transform_matrix = np.zeros(shape=(len(poses),4,4))
             R_z = np.array([[np.cos(np.pi), -np.sin(np.pi),0],[np.sin(np.pi), np.cos(np.pi), 0],[0,0,1]]).astype(np.float32)
@@ -348,10 +358,14 @@ def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="
         elif render_pose_type == "static":
             render_poses = torch.stack([pose_static(i,torch.tensor(poses[0,:,:])) for i in range(101)],0) #FIXME J: not tested
         elif render_pose_type == "original_trajectory": 
-            render_poses = torch.tensor(poses_original_trajectory(), dtype=torch.float32)
+            render_poses = torch.tensor(poses_original_trajectory(basedir), dtype=torch.float32)
             render_poses[:, 0:3, 3] /= scaling_factor # scale render_poses as poses #FIXME J: Not tested
-
-    render_times = torch.linspace(0., 1., render_poses.shape[0])
+        elif render_pose_type == "stat_dyn_stat":
+            stat_1 = torch.stack([torch.Tensor(poses[0]) for _ in range(50)], 0)
+            dyn_2 = torch.stack([pose_spherical2(0, angle, SCENE_OBJECT_DEPTH) for angle in np.linspace(0,90,41)], 0)
+            dyn_2[:, 0:3, 3] /= scaling_factor  
+            stat_3 = torch.stack([torch.Tensor(dyn_2[-1]) for _ in range(50)], 0)
+            render_poses = torch.cat([stat_1, dyn_2, stat_3], 0)  
     if slowmo:
         render_times_0 = torch.linspace(0., 0.35, int(render_poses.shape[0]*0.35))
         render_times_2 = torch.linspace(0.5,0.85, int(render_poses.shape[0]*0.35))
@@ -359,6 +373,14 @@ def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="
         render_times = torch.cat((render_times_0, render_times_1))
         render_times = torch.cat((render_times, render_times_2))
         print(render_times)
+    elif render_pose_type == "stat_dyn_stat":
+        render_times = torch.cat([
+            torch.linspace(0.,0.5,50),
+            torch.full((41,1), 0.5).squeeze(),
+            torch.linspace(0.5,1., 50)
+            ])
+    else:
+        render_times = torch.linspace(0., 1., render_poses.shape[0])
     
     if half_res:
         H = H//2
@@ -380,7 +402,7 @@ def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="
 
 if __name__ == "__main__":
     print("EXTRACTING DATA")
-    extract_owndataset_data("data/EXR_RGBD", "johannes_2")
+    extract_owndataset_data("data/EXR_RGBD_s3", "game")
     #exit(0)
 
     # print("DEBUGGING")

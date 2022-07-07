@@ -1,0 +1,41 @@
+expname = game_01_mse
+basedir = ./logs
+datadir = ./data/game
+dataset_type = owndataset           
+
+nerf_type = direct_temporal
+no_batching = True
+not_zero_canonical = False
+
+use_viewdirs = False
+white_bkgd = False
+lrate_decay = 500
+
+N_iter = 800000
+N_samples = 64
+N_importance = 128
+N_rand = 1024
+testskip = 1
+
+precrop_iters = 0
+precrop_iters_time = 0
+precrop_frac = 0.5
+
+half_res = True
+do_half_precision = False
+
+i_print=1000
+i_img = 10000
+depth_loss_type = mse
+depth_loss_weight = 0.1
+use_depth_guided_sampling = False
+use_latent_codes_as_time = False
+
+no_reload = False
+render_pose_type = spherical
+use_rigidity_network = False
+
+render_only = False
+render_test = False
+
+slowmo=False
