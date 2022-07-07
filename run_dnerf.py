@@ -826,7 +826,7 @@ def config_parser():
     parser.add_argument("--render_factor", type=int, default=0, 
                         help='downsampling factor to speed up rendering, set 4 or 8 for fast preview')
     parser.add_argument("--render_pose_type", type=str, default="spherical",
-                        help='render poses spherical or spiral or static or original_trajectory')
+                        help='render pose trajectory. Options depend on data loader implementation: spherical / spiral / static / original_trajectory')
     parser.add_argument("--slowmo", action='store_true', 
                         help='slow-motion effect in rendering video')
 
@@ -1005,8 +1005,9 @@ def train():
             attr = getattr(args, arg)
             file.write('{} = {}\n'.format(arg, attr))
     if args.config is not None:
+        config_text = open(args.config, 'r').read()
         with open(os.path.join(basedir, expname, 'config.txt'), 'w') as file:
-            file.write(open(args.config, 'r').read())
+            file.write(config_text)
 
     ray_bending_latents_list = []
     if args.use_latent_codes_as_time:
@@ -1358,8 +1359,8 @@ def train():
             writer.add_image('train_3_disp', disp.cpu().numpy(), i, dataformats='HW')
             writer.add_image('train_4_acc', acc.cpu().numpy(), i, dataformats='HW')
             if depth_maps is not None:
-                writer.add_image('train_5_depth_gt', target_depth.cpu().numpy(), i, dataformats='HW')
-                writer.add_image('train_6_depth', depth.cpu().numpy(), i, dataformats='HW')
+                writer.add_image('train_5_depth_gt', to8b(target_depth.cpu().numpy()/np.max(target_depth.cpu().numpy())), i, dataformats='HW')
+                writer.add_image('train_6_depth', to8b(depth.cpu().numpy()/np.max(depth.cpu().numpy())), i, dataformats='HW')
 
             if 'rgb0' in extras:
                 writer.add_image('train_7_rgb_rough', to8b(extras['rgb0'].cpu().numpy()), i, dataformats='HWC')
@@ -1419,8 +1420,8 @@ def train():
             writer.add_image('val_7_disp', disp.cpu().numpy(), i, dataformats='HW')
             writer.add_image('val_8_acc', acc.cpu().numpy(), i, dataformats='HW')
             if depth_maps is not None:
-                writer.add_image('val_9_depth_gt', target_depth.cpu().numpy(), i, dataformats='HW')
-                writer.add_image('val_10_depth', depth.cpu().numpy(), i, dataformats='HW')
+                writer.add_image('val_9_depth_gt', to8b(target_depth.cpu().numpy()/np.max(target_depth.cpu().numpy())), i, dataformats='HW')
+                writer.add_image('val_10_depth', to8b(depth.cpu().numpy()/np.max(depth.cpu().numpy())), i, dataformats='HW')
 
             if 'rgb0' in extras:
                 writer.add_image('val_11_rgb_rough', to8b(extras['rgb0'].cpu().numpy()), i, dataformats='HWC')
