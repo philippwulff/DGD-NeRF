@@ -20,6 +20,36 @@ SCENE_OBJECT_DEPTH = 0.2 # 0.35 bottle scene #1.45 johannes scene       # Distan
 FPS = 30 #60 johannes scene                      # FPS of the original video
 FPS_TARGET = 6 #15 johannes scene                 # FPS which get extracted
 
+
+SCENE_CONFIGURATIONS = {
+    "johannes": {
+        "SCENE_OBJECT_DEPTH": 1.45,
+        "FPS": 60,
+        "FPS_TARGET": 15,
+        "RAW_DATADIR": "data/EXR_RGBD",
+    },
+    "bottle": {
+        "SCENE_OBJECT_DEPTH": 0.35,
+        "FPS": 30,
+        "FPS_TARGET": 6,
+        "RAW_DATADIR": "data/EXR_RGBD_s2",
+    },
+    "game": {
+        "SCENE_OBJECT_DEPTH": 0.2,
+        "FPS": 30,
+        "FPS_TARGET": 6,
+        "RAW_DATADIR": "data/EXR_RGBD_s3",
+    }
+}
+
+
+def get_scene_config(scene_name):
+    """Error handling."""
+    if scene_name in SCENE_CONFIGURATIONS:
+        return SCENE_CONFIGURATIONS[scene_name]
+    raise NotImplementedError(f"You need to specify a configuration for scene '{scene_name}' in order to load it.")
+
+
 def quat_and_trans_2_trans_matrix(Q):
     """
     Covert a quaternion plus transformation vector into a full four-dimensional translation matrix.
@@ -119,15 +149,9 @@ def pose_static(i,pose):
 def poses_original_trajectory(basedir):
     """Returns poses from not used frames of the original video
     """
-    if basedir=="data/johannes":
-        datadir="data/EXR_RGBD"
-    elif basedir=="data/bottle":
-        datadir="data/EXR_RGBD_s2"
-    elif basedir=="data/game":
-        datadir="data/EXR_RGBD_s3"
-    else:
-        print("Datadir not found")
-        return None
+    scene_config = get_scene_config(basedir.split("/")[-1])
+    datadir = scene_config["RAW_DATADIR"]
+    SCENE_OBJECT_DEPTH = scene_config["SCENE_OBJECT_DEPTH"]
 
     with open(datadir + "/metadata.json", "r") as f:
         metas = json.load(f)
@@ -159,6 +183,12 @@ def extract_owndataset_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
         val_p (float, optional): Validation set fraction. Defaults to 0.15.
         test_p (float, optional): Test set fraction. Defaults to 0.15.
     """
+
+    scene_config = get_scene_config(scene_name)
+    SCENE_OBJECT_DEPTH = scene_config["SCENE_OBJECT_DEPTH"]
+    FPS = scene_config["FPS"]
+    FPS_TARGET = scene_config["FPS_TARGET"]
+
     def get_number_only(elem):
         if len(elem)==5:
             i = elem[:1]
@@ -191,10 +221,6 @@ def extract_owndataset_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
 
             H = np.array(metas["h"]).astype(np.float32)
             W = np.array(metas["w"]).astype(np.float32)
-
-            #init_pose = np.array(metas["initPose"]).astype(np.float32)
-            #transform_matrix = quat_and_trans_2_trans_matrix(init_pose) #J: i think it is in m
-            #transform_matrix[2, 3] = SCENE_OBJECT_DEPTH #FIXME J: To set training cam higher
             
             poses = np.array(metas["poses"]).astype(np.float32)
             poses = poses[::int(FPS/FPS_TARGET)]
@@ -265,6 +291,9 @@ def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="
     """
     splits = ['train', 'val', 'test']
     metas = {}
+    scene_config = get_scene_config(basedir.split("/")[-1])
+    SCENE_OBJECT_DEPTH = scene_config["SCENE_OBJECT_DEPTH"]
+
     for s in splits:
         with open(os.path.join(basedir, 'transforms_{}.json'.format(s)), 'r') as fp:
             # load the per-frame file-locations, times and homogeneous transforms
@@ -275,6 +304,8 @@ def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="
     all_poses = []
     all_times = []
     counts = [0]
+    scaling_factor=0
+
     for s in splits:
         meta = metas[s]
 
@@ -311,9 +342,8 @@ def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="
         depth_maps = (np.array(depth_maps)).astype(np.float32)  # convert mm to m
         poses = (np.array(poses)).astype(np.float32)
 
-        scaling_factor = np.max(np.abs(poses[:,:3,3]))  #convert to have poses in unit cube [-1,1]^3
-        depth_maps /= scaling_factor                    #convert to have same unit as in poses
-        poses[:, 0:3, 3] /= scaling_factor
+        scaling_factor_split = np.maximum(np.max(np.abs(poses[:,:3,3])),np.max(depth_maps/2))  #convert to have poses in unit cube [-1,1]^3 and depth <=2 for positional encoding to have different values already in first frequency
+        scaling_factor = np.maximum(scaling_factor, scaling_factor_split)
 
         times = np.array(times).astype(np.float32)
         counts.append(counts[-1] + imgs.shape[0])
@@ -329,6 +359,10 @@ def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="
     depth_maps = np.concatenate(all_depth_maps, 0).reshape(-1, *depth_maps.shape[1:], 1)
     poses = np.concatenate(all_poses, 0)
     times = np.concatenate(all_times, 0)
+
+    print("[Info] Data scaling factor:", scaling_factor)
+    depth_maps/=scaling_factor
+    poses[:, 0:3, 3] /= scaling_factor
     
     # relationship between the AOV and focal length: https://en.wikipedia.org/wiki/Angle_of_view
     H, W = imgs[0].shape[:2]
@@ -372,7 +406,7 @@ def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="
         render_times_1 = torch.linspace(0.35,0.5, render_poses.shape[0]-2*int(render_poses.shape[0]*0.35)) #slowmo
         render_times = torch.cat((render_times_0, render_times_1))
         render_times = torch.cat((render_times, render_times_2))
-        print(render_times)
+        print(render_times)         # FIXME DEL
     elif render_pose_type == "stat_dyn_stat":
         render_times = torch.cat([
             torch.linspace(0.,0.5,50),
