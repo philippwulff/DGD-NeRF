@@ -222,7 +222,7 @@ def render(H, W, focal_x, focal_y, chunk=1024*32, rays=None, c2w=None, ndc=True,
 
 
 def render_path(render_poses, render_times, hwff, chunk, render_kwargs, gt_imgs=None, gt_depths=None, savedir=None,
-                render_factor=0, save_also_gt=False, i_offset=0, ray_bending_latent_codes=None, expname=None):
+                render_factor=0, save_also_gt=False, i_offset=0, ray_bending_latent_codes=None, expname=None, iteration=None):
     """Render images at the given camera poses and times.
     Args:
         render_poses: array of poses to be rendered.
@@ -274,20 +274,28 @@ def render_path(render_poses, render_times, hwff, chunk, render_kwargs, gt_imgs=
         disps.append(disp.cpu().numpy())
         depths.append(depth.cpu().numpy())
 
+        rgb8_estim = to8b(rgbs[-1])
+        filename = os.path.join(save_dir_estim, '{:03d}.png'.format(i+i_offset))
+        imageio.imwrite(filename, rgb8_estim)
+
         if save_also_gt:
             rgb_gt = gt_imgs[i]
             rgb_gt = np.clip(rgb_gt,0,1)
             depth_gt = gt_depths[i].squeeze()
             rgbs_gt.append(rgb_gt)
             depths_gt.append(depth_gt)
+            rgb8_gt = to8b(gt_imgs[i])
+            filename = os.path.join(save_dir_gt, '{:03d}.png'.format(i+i_offset))
+            imageio.imwrite(filename, rgb8_gt)
 
     rgbs = np.stack(rgbs)
     depths = np.stack(depths)
     disps = np.stack(disps)
+
     if save_also_gt:
         rgbs_gt = np.stack(rgbs_gt)
         depth_gt = np.stack(depths_gt)
-        files_dir = "./logs/" + expname + "/renderonly_test_399999/" #FIXME J: make number not hardcoded
+        files_dir = "./logs/" + expname + "/" + 'renderonly_test_{:06d}'.format(iteration) #"/renderonly_test_399999/" #FIXME J: make number not hardcoded
         compute_metrics(files_dir, rgbs, rgbs_gt, depths, depths_gt)
 
     return rgbs, disps, depths
@@ -398,7 +406,7 @@ def create_nerf(args, autodecoder_variables=None):
 
     if len(ckpts) > 0 and (not args.no_reload or args.render_only):
         ckpt_path = ckpts[-1]
-        print('[Info] Reloading from', ckpt_path)
+        print('[Config] Reloading from', ckpt_path)
         ckpt = torch.load(ckpt_path, map_location=device)       # will map storages to the given device
 
         start = ckpt['global_step']
@@ -981,7 +989,7 @@ def train():
         print("[WARNING] No depth maps loaded. Cannot apply depth loss. Exiting.")
         return
 
-    print(f"[Info] Experiment name: {args.expname}")
+    print(f"[Config] Experiment name: {args.expname}")
 
     #################### Set up training ####################
 
@@ -1043,7 +1051,7 @@ def train():
 
     # Short circuit if only rendering out from trained model
     if args.render_only:
-        print('[Info] RENDER ONLY')
+        print('[Config] RENDER ONLY')
         with torch.no_grad():
             if args.render_test:
                 # render_test switches to test poses
@@ -1061,7 +1069,7 @@ def train():
             print('[Info] Test poses shape:', render_poses.shape)
 
             rgbs, _, depths = render_path(render_poses, render_times, hwff, args.chunk, render_kwargs_test, gt_imgs=images,
-                                  gt_depths=gt_depths, savedir=testsavedir, render_factor=args.render_factor, save_also_gt=save_also_gt, expname=args.expname)
+                                  gt_depths=gt_depths, savedir=testsavedir, render_factor=args.render_factor, save_also_gt=save_also_gt, expname=args.expname, iteration=start)
             print('[Info] Saving rendering to:', testsavedir)
             imageio.mimwrite(os.path.join(testsavedir, 'video_{}.mp4'.format(args.render_pose_type)), to8b(rgbs), fps=15, quality=8)
             imageio.mimwrite(os.path.join(testsavedir, 'video_depth_{}.mp4'.format(args.render_pose_type)), to8b(depths/np.max(depths)), fps=15, quality=8)

@@ -16,14 +16,10 @@ from utils.load_blender import trans_t, rot_phi, rot_theta
 
 #TODO: Set render_poses correct, maybe even test_poses
 
-SCENE_OBJECT_DEPTH = 0.2 # 0.35 bottle scene #1.45 johannes scene       # Distance to the main object of the scene in meters
-FPS = 30 #60 johannes scene                      # FPS of the original video
-FPS_TARGET = 6 #15 johannes scene                 # FPS which get extracted
-
 
 SCENE_CONFIGURATIONS = {
     "johannes": {
-        "SCENE_OBJECT_DEPTH": 1.45,
+        "SCENE_OBJECT_DEPTH": 1.45,      # Distance to the main object of the scene in meters
         "FPS": 60,
         "FPS_TARGET": 15,
         "RAW_DATADIR": "data/EXR_RGBD",
@@ -293,6 +289,7 @@ def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="
     metas = {}
     scene_config = get_scene_config(basedir.split("/")[-1])
     SCENE_OBJECT_DEPTH = scene_config["SCENE_OBJECT_DEPTH"]
+    print("Scene Object Depth:", SCENE_OBJECT_DEPTH)
 
     for s in splits:
         with open(os.path.join(basedir, 'transforms_{}.json'.format(s)), 'r') as fp:
