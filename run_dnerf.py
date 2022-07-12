@@ -23,7 +23,7 @@ import torch.nn as nn
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")           
 if device.type == "cuda":
     GPU_INDEX = os.environ.get('CUDA_VISIBLE_DEVICES', "None")
-    print(f"[Info] Using CUDA version {torch.version.cuda} on {torch.cuda.get_device_name(device.index).strip()} with global GPU index {GPU_INDEX}")
+    print(f"[Import] Using CUDA version {torch.version.cuda} on {torch.cuda.get_device_name(device.index).strip()} with global GPU index {GPU_INDEX}")
 
 torch.manual_seed(0)
 np.random.seed(0)
@@ -274,9 +274,14 @@ def render_path(render_poses, render_times, hwff, chunk, render_kwargs, gt_imgs=
         disps.append(disp.cpu().numpy())
         depths.append(depth.cpu().numpy())
 
-        rgb8_estim = to8b(rgbs[-1])
-        filename = os.path.join(save_dir_estim, '{:03d}.png'.format(i+i_offset))
-        imageio.imwrite(filename, rgb8_estim)
+        if savedir is not None:
+            rgb8_estim = to8b(rgbs[-1])
+            filename = os.path.join(save_dir_estim, '{:03d}.png'.format(i+i_offset))
+            imageio.imwrite(filename, rgb8_estim)
+
+            depth_estim = to8d(depths[-1])
+            filename = os.path.join(save_dir_estim_depth, '{:03d}.png'.format(i+i_offset))
+            imageio.imwrite(filename, depth_estim)
 
         if save_also_gt:
             rgb_gt = gt_imgs[i]
@@ -284,9 +289,14 @@ def render_path(render_poses, render_times, hwff, chunk, render_kwargs, gt_imgs=
             depth_gt = gt_depths[i].squeeze()
             rgbs_gt.append(rgb_gt)
             depths_gt.append(depth_gt)
-            rgb8_gt = to8b(gt_imgs[i])
+
+            rgb8_gt = to8b(rgb_gt)
             filename = os.path.join(save_dir_gt, '{:03d}.png'.format(i+i_offset))
             imageio.imwrite(filename, rgb8_gt)
+
+            depth_gt = to8d(depth_gt)
+            filename = os.path.join(save_dir_gt_depth, '{:03d}.png'.format(i+i_offset))
+            imageio.imwrite(filename, depth_gt)
 
     rgbs = np.stack(rgbs)
     depths = np.stack(depths)
@@ -908,7 +918,7 @@ def config_parser():
                         help='frequency of console printout and metric loggin')
     parser.add_argument("--i_img",     type=int, default=10000,
                         help='frequency of tensorboard image logging')
-    parser.add_argument("--i_weights", type=int, default=100000,
+    parser.add_argument("--i_weights", type=int, default=25000,
                         help='frequency of weight ckpt saving')
     parser.add_argument("--i_testset", type=int, default=200000,
                         help='frequency of testset saving')
@@ -1009,6 +1019,8 @@ def train():
     with open(os.path.join(basedir, expname, 'args.txt'), 'w') as file:
         vars_dict = vars(args)
         vars_dict["CUDA_VISIBLE_DEVICES"] = GPU_INDEX
+        vars_dict["hwff"] = hwff
+        vars_dict["near_and_far"] = [near, far]
         for arg in sorted(vars_dict):
             attr = getattr(args, arg)
             file.write('{} = {}\n'.format(arg, attr))
