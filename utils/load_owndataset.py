@@ -444,7 +444,14 @@ def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="
                 stat_1 = torch.stack([torch.Tensor(poses[0]) for _ in range(50)], 0)
                 dyn_2 = torch.tensor(interpolate_between_two_poses(basedir, 85, 165, 41, scaling_factor), dtype=torch.float32)
                 stat_3 = torch.stack([torch.Tensor(dyn_2[-1]) for _ in range(50)], 0)
-            render_poses = torch.cat([stat_1, dyn_2, stat_3], 0)  
+            render_poses = torch.cat([stat_1, dyn_2, stat_3], 0)
+        elif render_pose_type == "dynamic":
+            if basedir.split("/")[-1]=="gobblet":
+                dyn_1 = torch.tensor(interpolate_between_two_poses(basedir, 85, 120, 41, scaling_factor), dtype=torch.float32)
+                dyn_2 = torch.tensor(interpolate_between_two_poses(basedir, 120, 165, 41, scaling_factor), dtype=torch.float32)
+                dyn_3 = torch.tensor(interpolate_between_two_poses(basedir, 165, 120, 41, scaling_factor), dtype=torch.float32)
+                dyn_4 = torch.tensor(interpolate_between_two_poses(basedir, 120, 85, 41, scaling_factor), dtype=torch.float32)
+                render_poses = torch.cat([dyn_1, dyn_2, dyn_3, dyn_4], 0)
     if slowmo:
         render_times_0 = torch.linspace(0., 0.35, int(render_poses.shape[0]*0.35))
         render_times_2 = torch.linspace(0.5,0.85, int(render_poses.shape[0]*0.35))
@@ -456,6 +463,13 @@ def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="
             torch.linspace(0.,0.5,50),
             torch.full((41,1), 0.5).squeeze(),
             torch.linspace(0.5,1., 50)
+            ])
+    elif render_pose_type == "dynamic":
+        render_times = torch.cat([
+            torch.linspace(0.,0.5,41),
+            torch.full((41,1), 0.5).squeeze(),
+            torch.linspace(0.5,1., 50),
+            torch.full((41,1), 1.).squeeze(),
             ])
     else:
         render_times = torch.linspace(0., 1., render_poses.shape[0])

@@ -51,8 +51,8 @@ You can use these jupyter notebooks to explore the model.
 ### Train
 First download the dataset. Then,
 ```
-conda activate dnerf
-export PYTHONPATH='path/to/D-NeRF'
+conda activate dgdnerf
+export PYTHONPATH='path/to/DGD-NeRF'
 export CUDA_VISIBLE_DEVICES=0
 python run_dnerf.py --config configs/johannes.txt
 ```
