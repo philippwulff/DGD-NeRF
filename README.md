@@ -18,7 +18,7 @@ pip install -r requirements.txt
 
 If you want to directly explore the models or use our training data, you can download pre-trained models and the data:
 
-**Download Pre-trained Weights**. You can download the pre-trained models as logs.zip from [here](https://github.com/philippwulff/DGD-NeRF/releases/tag/v1.0). Unzip the downloaded data to the project root dir in order to test it later. This is what the directory structure looks like:
+**Download Pre-trained Weights**. You can download the pre-trained models as `logs.zip` from [here](https://github.com/philippwulff/DGD-NeRF/releases/tag/v1.0). Unzip the downloaded data to the project root dir in order to test it later. This is what the directory structure looks like:
 ```
 ├── logs 
 │   ├── human
@@ -31,7 +31,7 @@ If you want to directly explore the models or use our training data, you can dow
 
 **DeepDeform**. This is a RGB-D dataset of dynamic scenes with fixed camera poses. You can request access on the project's [GitHub page](https://github.com/AljazBozic/DeepDeform).
 
-**Own Data**. Download our own dataset as data.zip from [here](https://github.com/philippwulff/DGD-NeRF/releases/tag/v1.0).
+**Own Data**. Download our own dataset as `data.zip` from [here](https://github.com/philippwulff/DGD-NeRF/releases/tag/v1.0).
 This is what the directory structure looks like with pretrained weights and dataset:
 ```
 ├── data 
@@ -46,7 +46,7 @@ This is what the directory structure looks like with pretrained weights and data
 │   ├── ...
 ```
 
-**Generate Own scenes** Own scenes can be easily generated and integrated. We used an iPAD with Lidar Sensor (App: Record3d --> export Videos as EXR + RGB). Extract dataset to correct format by running load_owndataset.py (specifiy correct args in main() and create a scene configuration entry).
+**Generate Own scenes** Own scenes can be easily generated and integrated. We used an iPad with a Lidar Sensor (App: Record3d --> export Videos as EXR + RGB). Extract the dataset the format which our model expects by running `load_owndataset.py` (you will need to create a scene configuration in this file).
 
 ## How to Use It
 
@@ -71,7 +71,7 @@ First download the dataset. Then,
 conda activate dgdnerf
 export PYTHONPATH='path/to/DGD-NeRF'
 export CUDA_VISIBLE_DEVICES=0
-python run_dnerf.py --config configs/human.txt
+python run_dgdnerf.py --config configs/human.txt
 ```
 
 This command will run the `human` experiment with the specified args in the config `human.txt`.
@@ -80,16 +80,16 @@ Our extensions can be modularly enabled or disabled in `human.txt`.
 ### Test
 First train the model or download pre-trained weights and dataset. Then, 
 ```
-python run_dnerf.py --config configs/human.txt --render_only --render_test
+python run_dgdnerf.py --config configs/human.txt --render_only --render_test
 ```
-This command will render the test set images of the `human` experiment. When finished, quantitative (`metrics.txt`) and qualitative (rgb and depth images/videos) results are saved to `./logs/human/renderonly_test_400000`.
+This command will render the test set images of the `human` experiment. When finished, quantitative (`metrics.txt`) and qualitative results (rgb and depth images/videos) are saved to `./logs/human/renderonly_test_400000`.
 
 ### Render novel view videos
 
 To render novel view images you can use the notebook `render.ipynb`. To render novel view videos run
 ```
-python run_dnerf.py --config configs/human.txt --render_only --render_pose_type spherical
+python run_dgdnerf.py --config configs/human.txt --render_only --render_pose_type spherical
 ```
 
-There exist multiple options for the render_pose_type dependent on the selected scene.
+Select the novel view camera trajectory by setting `render_pose_type`. Options depend on the scene.
 
