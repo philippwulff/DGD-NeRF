@@ -16,8 +16,8 @@ from utils.metrics import MSE, PSNR, SSIM, LPIPS, RMSE
 # Misc
 img2mse = lambda x, y : torch.mean((x - y) ** 2)
 mse2psnr = lambda x : -10. * torch.log(x) / torch.log(torch.Tensor([10.]))
-to8b = lambda x : (255*np.clip(x,0,1)).astype(np.uint8)
-to8d = lambda x : (255*(x/np.max(x))).astype(np.uint8)
+to8b = lambda x : (255*np.clip(x,0,1)).astype(np.uint8) # scale rgb [0,1] to [0,255] for image
+to8d = lambda x : (255*(x/np.max(x))).astype(np.uint8) # Scale depth to go up to 255 for better depth image
 
 
 def depth2mse(depth, target_depth):
@@ -244,7 +244,7 @@ class DirectTemporalNeRF(nn.Module):
         return net_final(h)
 
     def forward(self, x, ts):
-        """Predict canonical sample.
+        """Whole Pipeline - predicts rgb and density in canonical volume given point x at time t.
         Args:
             x (Tensor): shape (-1, encoding_size). Embedded position (+ viewing direction).
             ts (list): Time stamps of the rays in the batch.
@@ -263,13 +263,13 @@ class DirectTemporalNeRF(nn.Module):
         if not self.use_latent_codes_as_time and cur_time == 0. and self.zero_canonical:
             dx = torch.zeros_like(input_pts[:, :3])                             # no deformation in canonical configuration
         else:
-            dx = self.query_time(input_pts, t, self._time, self._time_out)      # deformation of given point at time t
+            dx = self.query_time(input_pts, t, self._time, self._time_out)      # Deformation Network: deformation of given point at time t
             if self.use_rigidity_network:
-                rigidity_mask = self.query_rigidity(input_pts)
+                rigidity_mask = self.query_rigidity(input_pts)                  # Rigidity Network
                 dx = rigidity_mask * dx
             input_pts_orig = input_pts[:, :3]
             input_pts = self.embed_fn(input_pts_orig + dx)
-        out, _ = self._occ(torch.cat([input_pts, input_views], dim=-1), t)      # predict RGB + density
+        out, _ = self._occ(torch.cat([input_pts, input_views], dim=-1), t)      # self._occ is the canonical network (Original Nerf network) predict RGB + density
         return out, dx
 
 

@@ -11,7 +11,10 @@ import math
 import OpenEXR as exr
 import Imath
 
-from utils.load_blender import trans_t, rot_phi, rot_theta
+try:
+    from utils.load_blender import trans_t, rot_phi, rot_theta
+except:
+    from load_blender import trans_t, rot_phi, rot_theta
 #from load_blender import trans_t, rot_phi, rot_theta
 
 #TODO: Set render_poses correct, maybe even test_poses
@@ -19,7 +22,7 @@ from utils.load_blender import trans_t, rot_phi, rot_theta
 
 SCENE_CONFIGURATIONS = {
     "johannes": {
-        "SCENE_OBJECT_DEPTH": 1.45,      # Distance to the main object of the scene in meters
+        "SCENE_OBJECT_DEPTH": 1.45,      # Distance of the first camera pose to the main object of the scene in meters (translates z-axes of poses)
         "FPS": 60,
         "FPS_TARGET": 15,
         "RAW_DATADIR": "data/EXR_RGBD",
@@ -41,7 +44,7 @@ SCENE_CONFIGURATIONS = {
         "FPS": 30,
         "FPS_TARGET": 15,
         "RAW_DATADIR": "data/EXR_RGBD_s4",
-    }
+    },
 }
 
 

@@ -1,4 +1,4 @@
-expname = gobblet_08_mse_dgs_quartersamples
+expname = gobblet_01_dnerf
 basedir = ./logs
 datadir = ./data/gobblet
 dataset_type = owndataset           
@@ -12,8 +12,8 @@ white_bkgd = False
 lrate_decay = 500
 
 N_iter = 800000
-N_samples = 16
-N_importance = 32
+N_samples = 32
+N_importance = 64
 N_rand = 1024
 testskip = 1
 
@@ -28,8 +28,8 @@ i_print=1000
 i_img = 10000
 i_weights = 50000
 depth_loss_type = mse
-depth_loss_weight = 0.1
-use_depth_guided_sampling = True
+depth_loss_weight = 0.
+use_depth_guided_sampling = False
 use_latent_codes_as_time = False
 
 no_reload = False

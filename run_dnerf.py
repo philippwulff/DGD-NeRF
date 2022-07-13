@@ -59,7 +59,7 @@ def run_network(inputs, viewdirs, frame_time, fn, embed_fn, embeddirs_fn, embedt
                 embd_time_discr=True, use_latent_codes_as_time=False):
     """Prepares inputs and applies network 'fn'.
     inputs (Tensor): N_rays x N_points_per_ray x 3   
-    viewdirs (Tensor): N_rays x 3                                # TODO P: why not 2?
+    viewdirs (Tensor): N_rays x 3                
     frame_time (Tensor): (N_rays x 1) if direct time or (N_rays, ray_bending_latent_size) if latent codes for deformation network
     fn (function): network forward function
     ray_bending_latents (Tensor or None): .
@@ -84,7 +84,6 @@ def run_network(inputs, viewdirs, frame_time, fn, embed_fn, embeddirs_fn, embedt
         # N_rays x N_samples_per_ray x latent_size
         ray_bending_latents = torch.reshape(ray_bending_latents, [-1, ray_bending_latents.shape[-1]])  
         # N_rays * N_samples_per_ray x latent_size
-        # embedded = torch.cat([embedded, ray_bending_latents], -1)  # N_rays * N_samples_per_ray x (embedded position + embedded viewdirection + latent code)      # TODO delete
         embedded_times = [ray_bending_latents, ray_bending_latents]
     elif embd_time_discr:
         # embed time
@@ -109,10 +108,9 @@ def batchify_rays(rays_flat, chunk=1024*32, H=None, W=None, ray_bending_latent_c
     Args:
         rays_flat: [batch_size, 9] or [batch_size, 12] or [batch_size, 15]. all ray directions from a camera.
         chunk: int. The max number of rays to process in parallel. Defaults to 1024*32.
-        use_viewdirs (bool): TODO
     Returns:
         all_ret: dict.  
-        TODO
+        all_ray_debug: dict for debugging rays
     """
     all_ret = defaultdict(list)
     all_ray_debug = defaultdict(list)
@@ -144,7 +142,7 @@ def render(H, W, focal_x, focal_y, chunk=1024*32, rays=None, c2w=None, ndc=True,
         chunk: int. Maximum number of rays to process simultaneously. Used to
             control maximum memory usage. Does not affect final results.
         rays: array of shape [2, batch_size, 3]. Ray origin and direction for
-            each example in batch. TODO
+            each example in batch.
         c2w: array of shape [3, 4]. Camera-to-world transformation matrix. 
             Horizontal stack of the rotation matrix an the translation vector.
         ndc: bool. If True, represent ray origin, direction in normalized device coordinates (NDC).
@@ -153,7 +151,6 @@ def render(H, W, focal_x, focal_y, chunk=1024*32, rays=None, c2w=None, ndc=True,
         use_viewdirs: bool. If True, use viewing direction of a point in space in model.
         c2w_staticcam: array of shape [3, 4]. If not None, use this transformation matrix for 
             camera while using other c2w argument for viewing directions.
-        ray_bending_latent_codes: TODO
 
     Returns:
         rgb_map: [batch_size, 3]. Predicted RGB values for rays.
@@ -232,7 +229,6 @@ def render_path(render_poses, render_times, hwff, chunk, render_kwargs, gt_imgs=
         render_kwargs: dict which contains train/test objects such as the run_network function.
         gt_imgs: list of ground truth images. Defaults to None.
         i_offset: int. . Defaults to 0.
-        ray_bending_latent_codes TODO
     Returns:
         _type_: _description_
     """
@@ -305,7 +301,7 @@ def render_path(render_poses, render_times, hwff, chunk, render_kwargs, gt_imgs=
     if save_also_gt:
         rgbs_gt = np.stack(rgbs_gt)
         depth_gt = np.stack(depths_gt)
-        files_dir = "./logs/" + expname + "/" + 'renderonly_test_{:06d}'.format(iteration) #"/renderonly_test_399999/" #FIXME J: make number not hardcoded
+        files_dir = "./logs/" + expname + "/" + 'renderonly_test_{:06d}'.format(iteration)
         compute_metrics(files_dir, rgbs, rgbs_gt, depths, depths_gt)
 
     return rgbs, disps, depths
@@ -315,7 +311,7 @@ def create_nerf(args, autodecoder_variables=None):
     """Instantiate NeRF's MLP model.
     Args:
         args (dict): Model arguments.
-        autodecoder_variables (Tensor): (TODO shape) Learnable latent vectors as input for deformation network. 
+        autodecoder_variables (Tensor): Learnable latent vectors as input for deformation network. 
     Returns:
         render_kwargs_train: dict for training configuration.
         render_kwargs_test: dict for test configuration.
@@ -335,10 +331,9 @@ def create_nerf(args, autodecoder_variables=None):
     embeddirs_fn = None
     if args.use_viewdirs:
         embeddirs_fn, input_ch_views = get_embedder(args.multires_views, 3, args.i_embed)   # Also encode the 2D direction 
-        # TODO P: Warum 3? sollte das nicht 2 sein?
 
     # output_ch only changes the net architecture if use_viewdirs is true
-    output_ch = 5 if args.N_importance > 0 else 4                   # TODO warum 5??? RGB + density???
+    output_ch = 5 if args.N_importance > 0 else 4
     skips = [4]
     model = NeRF.get_by_name(
         args.nerf_type, 
@@ -390,7 +385,7 @@ def create_nerf(args, autodecoder_variables=None):
     # Note: needs to be Adam. otherwise need to check how to avoid wrong DeepSDF-style autodecoder optimization of the per-frame latent codes.
     optimizer = torch.optim.Adam(params=grad_vars, lr=args.lrate, betas=(0.9, 0.999))
 
-    if args.do_half_precision:          # TODO P: amp ist nicht installier, oder? Wird das hier je ausgeführt?
+    if args.do_half_precision: 
         print("[Config] Run model at half precision")
         if model_fine is not None:
             [model, model_fine], optimizers = amp.initialize([model, model_fine], optimizer, opt_level='O1')
@@ -565,7 +560,7 @@ def render_rays(ray_batch,
         These samples are only passed to network_fine.
       network_fine: "fine" network with same spec as network_fn.
       white_bkgd: bool. If True, assume a white background.
-      raw_noise_std: ... TODO???
+      raw_noise_std: not needed for us.
       verbose: bool. If True, print more debugging info.
       z_vals: [num_rays, num_samples along ray]. Integration time.
     Returns:
@@ -573,9 +568,9 @@ def render_rays(ray_batch,
             rgb_map: [num_rays, 3]. Estimated RGB color of a ray. Comes from fine model.
             disp_map: [num_rays]. Disparity map. 1 / depth.
             acc_map: [num_rays]. Accumulated opacity along each ray. Comes from fine model.
-            depth_map: TODO
+            depth_map: [num_rays]
             raw: [num_rays, num_samples, 5]. Raw predictions from model.
-            z_vals: TODO
+            z_vals: [num_rays, N_samples] Sample locations along the rays.
             position_delta: TODO
             rgb0: See rgb_map. Output for coarse model.
             disp0: See disp_map. Output for coarse model.
@@ -583,7 +578,7 @@ def render_rays(ray_batch,
             depth0: See depth_map. Output for coarse model.
             z_std: [num_rays]. Standard deviation of distances along ray for each sample.
             position_delta_0: TODO
-            z_std: TODO
+            z_std: Standard deviation of the predicted depth.
     """
 
     N_rays = ray_batch.shape[0]
@@ -605,66 +600,10 @@ def render_rays(ray_batch,
             depth_range = ray_batch[:, 9:12]
 
     if ray_bending_latent_codes is not None:
-        frame_time = ray_bending_latent_codes          # FIXME P enstehen hierdurch deepcopy probleme??? ansonsten im dict zusammen mit frame-time übergeben
-
-    ############# TEMPORARY
-
-    # if z_vals is None:
-    #     t_vals = torch.linspace(0., 1., steps=N_samples)
-    #     if not lindisp:
-    #         z_vals = near * (1.-t_vals) + far * (t_vals)
-    #     else:
-    #         z_vals = 1./(1./near * (1.-t_vals) + 1./far * (t_vals))
-
-    #     z_vals = z_vals.expand([N_rays, N_samples])
-
-    #     if perturb > 0.:
-    #         # get intervals between samples
-    #         mids = .5 * (z_vals[...,1:] + z_vals[...,:-1])
-    #         upper = torch.cat([mids, z_vals[...,-1:]], -1)
-    #         lower = torch.cat([z_vals[...,:1], mids], -1)
-    #         # stratified samples in those intervals
-    #         t_rand = torch.rand(z_vals.shape)
-
-    #         # Pytest, overwrite u with numpy's fixed random numbers
-    #         if pytest:
-    #             np.random.seed(0)
-    #             t_rand = np.random.rand(*list(z_vals.shape))
-    #             t_rand = torch.Tensor(t_rand)
-
-    #         z_vals = lower + (upper - lower) * t_rand
-
-    #     pts = rays_o[...,None,:] + rays_d[...,None,:] * z_vals[...,:,None] # [N_rays, N_samples, 3]
-
-
-    #     if N_importance <= 0:
-    #         raw, position_delta = network_query_fn(pts, viewdirs, frame_time, network_fn)
-    #         rgb_map, disp_map, acc_map, weights, depth_map, _ = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
-
-    #     else:
-    #         if use_two_models_for_fine:
-    #             raw, position_delta_0 = network_query_fn(pts, viewdirs, frame_time, network_fn)
-    #             rgb_map_0, disp_map_0, acc_map_0, weights, _, _ = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
-
-    #         else:
-    #             with torch.no_grad():
-    #                 raw, _ = network_query_fn(pts, viewdirs, frame_time, network_fn)
-    #                 _, _, _, weights, _, _ = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
-
-    #         z_vals_mid = .5 * (z_vals[...,1:] + z_vals[...,:-1])
-    #         z_samples = sample_pdf(z_vals_mid, weights[...,1:-1], N_importance, det=(perturb==0.), pytest=pytest)
-    #         z_samples = z_samples.detach()
-    #         z_vals, _ = torch.sort(torch.cat([z_vals, z_samples], -1), -1)
-
-    ############# TEMPORARY
-
+        frame_time = ray_bending_latent_codes
 
     if z_vals is None:      
         # create coarse integration locations along the rays
-        # if use_depth_guided_sampling:
-        #     z_coarse = comp_quadratic_samples(near, far, N_samples)
-            
-        # else:
         t_vals = torch.linspace(0., 1., steps=N_samples)
         if not lindisp:
             z_coarse = near * (1.-t_vals) + far * (t_vals)
@@ -673,16 +612,11 @@ def render_rays(ray_batch,
         z_coarse = z_coarse.expand([N_rays, N_samples])
 
         # compute a lower bound for the sampling standard deviation as the maximal distance between samples
-        lower_bound = z_coarse[0, -1] - z_coarse[0, -2]             # FIXME in Barbaras code is das hier ein tensor mit shape (64)
+        lower_bound = z_coarse[0, -1] - z_coarse[0, -2] 
 
         # Add stratified perturbations 
         z_coarse = stratified_samples(z_coarse, pytest=pytest) if perturb > 0. else z_coarse     
         pts = rays_o[...,None,:] + rays_d[...,None,:] * z_coarse[...,:,None]      # [N_rays, N_samples, 3]
-
-        # if N_importance <= 0:       
-        #     # If no fine samples wanted, query network_fn in N_samples coarse locations
-        #     raw, position_delta = network_query_fn(pts, viewdirs, frame_time, network_fn)
-        #     rgb_map, disp_map, acc_map, weights, depth_map, depth_std_map = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
         
         if N_importance > 0:   # If fine samples wanted         
             if use_two_models_for_fine:     
@@ -713,12 +647,8 @@ def render_rays(ray_batch,
                     z_fine = compute_samples_around_depth(raw, z_coarse, rays_d, N_importance, 
                                                           perturb, lower_bound, near[0, 0], far[0, 0], device=device)
                 # Combine coarse and fine integration locations
-                # pts_2 = rays_o[...,None,:] + rays_d[...,None,:] * z_fine[...,:,None]
-                # raw_2, _ = network_query_fn(pts_2, viewdirs, frame_time, network_fn)
                 z_vals = torch.cat((z_coarse, z_fine), -1)
-                # raw = torch.cat((raw, raw_2), 1)
                 z_vals, indices = z_vals.sort()
-                # raw = torch.gather(raw, 1, indices.unsqueeze(-1).expand_as(raw))
             else:       
                 # Get fine samples from hierarchical sampling
                 z_vals_mid = .5 * (z_coarse[...,1:] + z_coarse[...,:-1])
@@ -869,7 +799,6 @@ def config_parser():
                         help='do not reload weights from saved ckpt')
     parser.add_argument("--ft_path", type=str, default=None,        
                         help='specific weights npy file to reload for coarse network')
-                        # TODO P: im code wird ft_path benutzt, um alle weights zu initialisiren (nicht nur das coarse net)
     parser.add_argument("--precrop_iters", type=int, default=0,
                         help='number of steps to train on central crops')
     parser.add_argument("--precrop_iters_time", type=int, default=0,
@@ -1033,13 +962,13 @@ def train():
     if args.use_latent_codes_as_time:
         # create autodecoder variables as pytorch tensors
         ray_bending_latents_list = [
-            torch.zeros(args.ray_bending_latent_size) for _ in range(len(times))      # FIXME ändern zu len(i_train)
+            torch.zeros(args.ray_bending_latent_size) for _ in range(len(times))   
         ]
         for latent in ray_bending_latents_list:
             latent.requires_grad = True
 
         # select nearest timesteps from latents list
-        render_times = [ray_bending_latents_list[int(t*(len(ray_bending_latents_list)-1))].clone().detach() for t in render_times]      # FIXME P ist detach clone richtig????
+        render_times = [ray_bending_latents_list[int(t*(len(ray_bending_latents_list)-1))].clone().detach() for t in render_times]   
 
     # Create nerf model
     render_kwargs_train, render_kwargs_test, start, grad_vars, optimizer = create_nerf(args, autodecoder_variables=ray_bending_latents_list)
@@ -1114,7 +1043,6 @@ def train():
     times = torch.Tensor(times).to(device)
     if use_batching:
         rays_rgb = torch.Tensor(rays_rgb).to(device)
-    # FIXME P vielleicht auch ray_bending_latent_codes auf GPU
     ray_bending_latents_list = [l_vec.to(device) for l_vec in ray_bending_latents_list]
 
     #################### Training loop ####################
@@ -1130,7 +1058,6 @@ def train():
         time0 = time.time()
 
         # Sample random ray batch
-        # TODO Johannes: Schauen ob es Sinn macht batches über mehrer bilder zu machen anstatt nur von einem
         # target_depth_s müsste dann hier auch bestimmt werden
         if use_batching:
             raise NotImplementedError("Time not implemented")
@@ -1160,7 +1087,7 @@ def train():
             if comp_depth:
                 target_depth = depth_maps[img_i]
             pose = poses[img_i, :3, :4]
-            if args.use_latent_codes_as_time:        # FIXME P richtig???
+            if args.use_latent_codes_as_time:
                 frame_time = ray_bending_latents_list[img_i]
             else:
                 frame_time = times[img_i]
@@ -1228,7 +1155,7 @@ def train():
                                                 verbose=i < 10, retraw=True, z_vals=extras['z_vals'].detach(),
                                                 **render_kwargs_train)
 
-        optimizer.zero_grad()           # FIXME P: this part is at beginning of loop in NR-NeRF
+        optimizer.zero_grad() 
         # reset autodecoder gradients to avoid wrong DeepSDF-style optimization. Note: this is only guaranteed to work if the optimizer is Adam
         for latent in ray_bending_latents_list:
             latent.grad = None
@@ -1252,7 +1179,7 @@ def train():
             if args.depth_loss_type == "mse":
                 depth_loss = depth2mse(depth, target_depth_s.squeeze())
             elif args.depth_loss_type == "gnll":
-                depth_loss = depth2gnll(depth, target_depth_s.squeeze(), extras['depth_std_map']) #target_depth_std_s) #FIXME J: Change to correct variable names for variances
+                depth_loss = depth2gnll(depth, target_depth_s.squeeze(), extras['depth_std_map'])
             else:
                 print("No depth_loss_type specified -- either mse or gnll")
         loss = img_loss + tv_loss + args.depth_loss_weight * depth_loss 
@@ -1263,7 +1190,7 @@ def train():
             img_loss0 = img2mse(extras['rgb0'], target_s)
             depth_loss0 = 0
             if args.depth_loss_weight > 0:
-                depth_loss0 = depth2mse(extras['depth0'], target_depth_s) #FIXME J: Not tested yet: set use_two_models_fine=True
+                depth_loss0 = depth2mse(extras['depth0'], target_depth_s) 
             loss0 = img_loss0 + args.depth_loss_weight * depth_loss0
             loss += loss0
             psnr0 = mse2psnr(img_loss0)
@@ -1274,7 +1201,7 @@ def train():
         else:
             loss.backward()
 
-        nn.utils.clip_grad_value_(grad_vars, 0.1) #FIXME J: neu eingefügt ohne getestet
+        nn.utils.clip_grad_value_(grad_vars, 0.1)
         optimizer.step()
 
         ############################ update learning rate ############################
@@ -1351,11 +1278,6 @@ def train():
         # Validate on a random image from the val set
         if i%args.i_img == 0:       
             torch.cuda.empty_cache()
-
-            # TODO am trainings beginn nur von den latent codes wählen, die bereits optimiert wurden
-            # if args.use_latent_codes_as_time:
-            #     img_i = np.random.choice(len([l for l in ray_bending_latents_list if torch.nonzero((l))]))
-            # else:
             
             # === Image from Training Set ===
 
@@ -1408,7 +1330,7 @@ def train():
                 # get ray bending latent code from nearest train image
                 frame_time = ray_bending_latents_list[get_nearest_train_index(times[img_i].item(), [times[_] for _ in i_train])]
             else:
-                frame_time = times[img_i]       # FIXME this should be render_times?
+                frame_time = times[img_i] 
 
             with torch.no_grad():
                 rgb, disp, acc, depth, extras = render(H, W, focal_x, focal_y, chunk=args.chunk, c2w=pose, frame_time=frame_time, debug_rays=debug_rays,
@@ -1470,13 +1392,6 @@ def train():
             moviebase = os.path.join(basedir, expname, '{}_spiral_{:06d}_'.format(expname, i))
             imageio.mimwrite(moviebase + 'rgb.mp4', to8b(rgbs), fps=15, quality=8)
             imageio.mimwrite(moviebase + 'disp.mp4', to8b(disps / np.max(disps)), fps=15, quality=8)
-
-            # if args.use_viewdirs:
-            #     render_kwargs_test['c2w_staticcam'] = render_poses[0][:3,:4]
-            #     with torch.no_grad():
-            #         rgbs_still, _ = render_path(render_poses, hwf, args.chunk, render_kwargs_test)
-            #     render_kwargs_test['c2w_staticcam'] = None
-            #     imageio.mimwrite(moviebase + 'rgb_still.mp4', to8b(rgbs_still), fps=15, quality=8)
 
         # Rerender images from the test set
         if i%args.i_testset==0:
