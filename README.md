@@ -82,7 +82,7 @@ First train the model or download pre-trained weights and dataset. Then,
 ```
 python run_dnerf.py --config configs/human.txt --render_only --render_test
 ```
-This command will render the test set images of the `human` experiment. When finished, quantitative (`metrics.txt`) and qualitative (rgb and depth images/videos) results are saved to `./logs/human/renderonly_test_799999`.
+This command will render the test set images of the `human` experiment. When finished, quantitative (`metrics.txt`) and qualitative (rgb and depth images/videos) results are saved to `./logs/human/renderonly_test_400000`.
 
 ### Render novel view videos
 
