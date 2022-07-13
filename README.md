@@ -50,7 +50,7 @@ This is what the directory structure looks like with pretrained weights and data
 
 ## How to Use It
 
-If you have downloaded the pre-trained, you can test models without training them. Otherwise, download our or you own data to train a model.
+If you have downloaded our data and the pre-trained weights, you can test our models without training them. Otherwise, you can also train a model with our or your own data from scratch.
 
 ### Demo
 You can use these jupyter notebooks to explore the model.
