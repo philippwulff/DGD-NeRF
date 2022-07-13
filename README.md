@@ -59,4 +59,4 @@ First download pre-trained weights and dataset. Then,
 ```
 python run_dnerf.py --config configs/johannes.txt --render_only --render_test
 ```
-This command will run the `johannes` experiment. When finished, results are saved to `./logs/johannes/renderonly_test_799999`. To quantitatively evaluate model run the `metrics.ipynb` notebook.
+This command will run the `johannes` experiment. When finished, results are saved to `./logs/johannes/renderonly_test_799999`. The quantitative results are stored in the folder under "metrics.txt".
