@@ -41,7 +41,6 @@ You can use these jupyter notebooks to explore the model.
 | ----------- | ----------- |
 | Synthesize novel views at an arbitrary point in time. (Requires trained model) | render.ipynb|
 | Reconstruct the mesh at an arbitrary point in time. (Requires trained model) | reconstruct.ipynb|
-| Quantitatively evaluate trained models. | metrics.ipynb|
 | See the camera trajectory of the training frames or novel views. | eda_virtual_camera.ipynb|
 | Visualize the sampling along camera rays. (Requires training logs) | eda_ray_sampling.ipynb|
 
@@ -51,7 +50,7 @@ First download the dataset. Then,
 conda activate dnerf
 export PYTHONPATH='path/to/D-NeRF'
 export CUDA_VISIBLE_DEVICES=0
-python run_dnerf.py --config configs/mutant.txt
+python run_dnerf.py --config configs/johannes.txt
 ```
 
 ### Test
@@ -59,4 +58,4 @@ First download pre-trained weights and dataset. Then,
 ```
 python run_dnerf.py --config configs/johannes.txt --render_only --render_test
 ```
-This command will run the `johannes` experiment. When finished, results are saved to `./logs/johannes/renderonly_test_799999`. The quantitative results are stored in the folder under "metrics.txt".
+This command will run the `johannes` experiment. When finished, results are saved to `./logs/johannes/renderonly_test_799999`. The quantitative results are stored inside the folder under "metrics.txt".
