@@ -1,5 +1,5 @@
 # DGD-NeRF: Depth-Guided Neural Radiance Fields for Dynamic Scenes
-### [[Website]](philippwulff.github.io/dgd-nerf/) [[Paper]](https://github.com/philippwulff/DGD-NeRF/docs/report.pdf) 
+### [[Website]](philippwulff.github.io/dgd-nerf/) [[Paper]](https://github.com/philippwulff/DGD-NeRF/docs/Dynamic_NeRF_on_RGB_D_Data.pdf) 
 
 DGD-NeRF is a method for synthesizing novel views, at an arbitrary point in time, of dynamic scenes with complex non-rigid geometries. We optimize an underlying deformable volumetric function from a sparse set of input monocular views without the need of ground-truth geometry nor multi-view images.
 
