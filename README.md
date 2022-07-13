@@ -27,7 +27,7 @@ If you want to directly explore the models or use our training data, you can dow
 │   ├── ...
 ```
 
-*Dataset*
+## Dataset
 
 **DeepDeform**. This is a RGB-D dataset of dynamic scenes with fixed camera poses. You can request access on the project's [GitHub page](https://github.com/AljazBozic/DeepDeform).
 
