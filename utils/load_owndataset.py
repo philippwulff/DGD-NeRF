@@ -452,6 +452,8 @@ def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="
                 dyn_3 = torch.tensor(interpolate_between_two_poses(basedir, 165, 120, 41, scaling_factor), dtype=torch.float32)
                 dyn_4 = torch.tensor(interpolate_between_two_poses(basedir, 120, 85, 41, scaling_factor), dtype=torch.float32)
                 render_poses = torch.cat([dyn_1, dyn_2, dyn_3, dyn_4], 0)
+        else:
+            print("The specified render_pose_type is not implemented for the selected scene")
     if slowmo:
         render_times_0 = torch.linspace(0., 0.35, int(render_poses.shape[0]*0.35))
         render_times_2 = torch.linspace(0.5,0.85, int(render_poses.shape[0]*0.35))

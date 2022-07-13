@@ -774,7 +774,7 @@ def config_parser():
     parser.add_argument("--render_factor", type=int, default=0, 
                         help='downsampling factor to speed up rendering, set 4 or 8 for fast preview')
     parser.add_argument("--render_pose_type", type=str, default="spherical",
-                        help='render pose trajectory. Options depend on data loader implementation: spherical / spiral / static / original_trajectory')
+                        help='render pose trajectory. Options depend on data loader implementation: spherical / spiral / static / original_trajectory / stat_dyn_stat / dynamic') # For explanations look in the docstrings in load_owndataset.py
     parser.add_argument("--slowmo", action='store_true', 
                         help='slow-motion effect in rendering video')
 

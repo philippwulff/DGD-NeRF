@@ -246,26 +246,18 @@
     <!-- Animation. -->
     <div class="columns is-centered">
       <div class="column is-full-width">
-        <h2 class="title is-3">Animation</h2>
 
         <!-- Interpolating. -->
-        <h3 class="title is-4">Bullet-Time Effect</h3>
+        <h3 class="title is-4">Data Capturing</h3>
         <div class="content has-text-justified">
           <p>
-            Using <i>dynamic NeRF</i> you can create fun visual effects just like in 
-            <a href="https://youtu.be/ggFKLxAQBbc?t=35">this scene</a> 
-            in "The Matrix" where Neo dogdes bullets fired at him. In the film they used 
-            over 100 cameras to capture a scene that we can create with one.
+            We built a custom RGB-D dataset of challenging scenes. We used an iPad to record RGB-D 
+            videos and the corresponding camera poses.
           </p>
         </div>
         <div class="content has-text-centered">
-          <video id="replay-video"
-                 controls
-                 muted
-                 preload
-                 playsinline
-                 width="50%">
-            <source src="static/images/human_stat_dyn_stat.mp4"
+          <video id="dollyzoom" autoplay controls muted loop playsinline height="50%">
+            <source src="static/images/human_capture.mp4"
                     type="video/mp4">
           </video>
         </div>
@@ -296,23 +288,15 @@
         <!--/ Interpolating. -->
 
         <!-- Re-rendering. -->
-        <h3 class="title is-4">Re-rendering the input video</h3>
+        <h3 class="title is-4">Ray Sampling</h3>
         <div class="content has-text-justified">
           <p>
-            Using <span class="dnerf">DGD-NeRF</span>, you can re-render a video from a novel
-            viewpoint such as a stabilized camera by playing back the training deformations.
+            Depth guided sampling ensures that most samples in spatial locations 
+            near the first surface in the direction of the ray.
           </p>
         </div>
         <div class="content has-text-centered">
-          <video id="replay-video"
-                 controls
-                 muted
-                 preload
-                 playsinline
-                 width="50%">
-            <source src="static/images/human_static.mp4"
-                    type="video/mp4">
-          </video>
+          <img src="static/images/ray_sampling.png" alt="Ray sampling" height=50%>
         </div>
         <!--/ Re-rendering. -->
 
@@ -320,40 +304,52 @@
     </div>
     <!--/ Animation. -->
 
+    <h2 class="title is-3">Animations</h2>
+
     <div class="columns is-centered">
 
       <!-- Visual Effects. -->
       <div class="column">
         <div class="content">
-          <h2 class="title is-3">Data Capturing</h2>
+          <h2 class="title is-3">Bullet-Time Effect</h2>
           <p>
-            We built a custom RGB-D dataset of challenging scenes. We used an iPad to record RGB-D 
-            videos and the corresponding camera poses.
+            With <i>dynamic NeRF</i> you can create fun visual effects like in 
+            <a href="https://youtu.be/ggFKLxAQBbc?t=35">this scene</a> 
+            from "Matrix". In the movie they used 
+            over 100 cameras to capture a scene that can create with one.
           </p>
-          <video id="dollyzoom" autoplay controls muted loop playsinline height="100%">
-            <source src="static/images/human_capture.mp4"
+          <video id="replay-video"
+                 controls
+                 muted
+                 preload
+                 playsinline
+                 width="100%">
+            <source src="static/images/human_stat_dyn_stat.mp4"
                     type="video/mp4">
           </video>
         </div>
       </div>
       <!--/ Visual Effects. -->
 
-      <!-- Matting. -->
+      <!-- Re-rendering. -->
       <div class="column">
-        <h2 class="title is-3">Ray Sampling</h2>
+        <h2 class="title is-3">Re-rendring the input video</h2>
         <div class="columns is-centered">
           <div class="column content">
             <p>
-              Depth guided sampling ensures that most samples in spatial locations 
-              near the first surface in the direction of the ray.
+              Using <span class="dnerf">DGD-NeRF</span>, you can re-render a video from a novel
+              viewpoint such as a stabilized camera by playing back the training deformations.
             </p>
-            <img src="static/images/ray_sampling.png" alt="Ray sampling">
+            <video id="replay-video" controls muted preload playsinline width="100%">
+              <source src="static/images/human_static.mp4" type="video/mp4">
+            </video>
           </div>
-
         </div>
       </div>
     </div>
-    <!--/ Matting. -->
+    <!--/ Re-rendering. -->
+
+
 
   </div>
 </section>
