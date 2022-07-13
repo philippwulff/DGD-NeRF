@@ -1,6 +1,6 @@
-expname = bottle_07_debug
+expname = gobblet_08_mse_dgs_quartersamples
 basedir = ./logs
-datadir = ./data/bottle
+datadir = ./data/gobblet
 dataset_type = owndataset           
 
 nerf_type = direct_temporal
@@ -12,8 +12,8 @@ white_bkgd = False
 lrate_decay = 500
 
 N_iter = 800000
-N_samples = 32
-N_importance = 64
+N_samples = 16
+N_importance = 32
 N_rand = 1024
 testskip = 1
 
@@ -26,7 +26,7 @@ do_half_precision = False
 
 i_print=1000
 i_img = 10000
-i_weights=20000
+i_weights = 50000
 depth_loss_type = mse
 depth_loss_weight = 0.1
 use_depth_guided_sampling = True

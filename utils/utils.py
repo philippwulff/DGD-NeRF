@@ -28,7 +28,7 @@ class Arrow3D(FancyArrowPatch):
         return np.min(zs)
 
 
-def draw_transformed(c2w, ax, axes_len=1.0, edgecolor=None, **kwargs):
+def draw_transformed(c2w, ax, axes_len=1.0, edgecolor=None, only_z=False, **kwargs):
     """Draw the camera coordinate frame. Camera-to-world transformation."""
     # R = torch.Tensor(np.array([[-1,0,0],[0,0,1],[0,1,0]])).T @ c2w[:3, :3]
     R = c2w[:3, :3]
@@ -39,8 +39,10 @@ def draw_transformed(c2w, ax, axes_len=1.0, edgecolor=None, **kwargs):
     new_z = R @ np.array([0, 0, axes_len]) + new_o
     arrow_prop_dict = dict(mutation_scale=20, arrowstyle='-|>', shrinkA=0, shrinkB=0, fill=True)
     arrow_prop_dict.update(**kwargs)
-    arrx = ax.add_artist(Arrow3D([new_o[0], new_x[0]], [new_o[1], new_x[1]], [new_o[2], new_x[2]], **arrow_prop_dict, facecolor='r', edgecolor=edgecolor if edgecolor else "r"))
-    arry = ax.add_artist(Arrow3D([new_o[0], new_y[0]], [new_o[1], new_y[1]], [new_o[2], new_y[2]], **arrow_prop_dict, facecolor='b', edgecolor=edgecolor if edgecolor else "b"))
+    arrx, arry = None, None
+    if not only_z:
+        arrx = ax.add_artist(Arrow3D([new_o[0], new_x[0]], [new_o[1], new_x[1]], [new_o[2], new_x[2]], **arrow_prop_dict, facecolor='r', edgecolor=edgecolor if edgecolor else "r"))
+        arry = ax.add_artist(Arrow3D([new_o[0], new_y[0]], [new_o[1], new_y[1]], [new_o[2], new_y[2]], **arrow_prop_dict, facecolor='b', edgecolor=edgecolor if edgecolor else "b"))
     arrz = ax.add_artist(Arrow3D([new_o[0], new_z[0]], [new_o[1], new_z[1]], [new_o[2], new_z[2]], **arrow_prop_dict, facecolor='g', edgecolor=edgecolor if edgecolor else "g"))
     return arrx, arry, arrz, new_o
 

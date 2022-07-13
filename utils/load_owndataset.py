@@ -35,6 +35,12 @@ SCENE_CONFIGURATIONS = {
         "FPS": 30,
         "FPS_TARGET": 6,
         "RAW_DATADIR": "data/EXR_RGBD_s3",
+    },
+    "gobblet": {
+        "SCENE_OBJECT_DEPTH": 0.45,
+        "FPS": 30,
+        "FPS_TARGET": 15,
+        "RAW_DATADIR": "data/EXR_RGBD_s4",
     }
 }
 
@@ -148,6 +154,9 @@ def poses_original_trajectory(basedir):
     scene_config = get_scene_config(basedir.split("/")[-1])
     datadir = scene_config["RAW_DATADIR"]
     SCENE_OBJECT_DEPTH = scene_config["SCENE_OBJECT_DEPTH"]
+    FPS = scene_config["FPS"]
+    FPS_TARGET = scene_config["FPS_TARGET"]
+
 
     with open(datadir + "/metadata.json", "r") as f:
         metas = json.load(f)
@@ -162,6 +171,32 @@ def poses_original_trajectory(basedir):
             transform_matrix[i,2,3] += SCENE_OBJECT_DEPTH
             transform_matrix[i,:3,:3] = transform_matrix[i,:3,:3] @ R_z # Rotate every transform_matrix 180 degree around z-axis
         return transform_matrix
+
+def interpolate_between_two_poses(basedir, idx_pose_1, idx_pose_2, interp_steps, scaling_factor):
+    """Interpolates between two poses from the dataset with specified interpolation steps
+    """
+    scene_config = get_scene_config(basedir.split("/")[-1])
+    datadir = scene_config["RAW_DATADIR"]
+    SCENE_OBJECT_DEPTH = scene_config["SCENE_OBJECT_DEPTH"]
+    with open(datadir + "/metadata.json", "r") as f:
+        metas = json.load(f)
+        
+        poses = np.array(metas["poses"]).astype(np.float32)
+
+        quat_1 = poses[idx_pose_1] # quaternion + translation vector of first pose
+        quat_2 = poses[idx_pose_2] # quaternion + translation vector of second pose
+        quats = np.zeros(shape=(interp_steps,7))
+        for z in range(interp_steps):
+            quats[z] = ((interp_steps-z)/interp_steps)*quat_1 + (z/interp_steps)*quat_2 # linear interpolation
+        transform_matrix = np.zeros(shape=(len(quats),4,4))
+        R_z = np.array([[np.cos(np.pi), -np.sin(np.pi),0],[np.sin(np.pi), np.cos(np.pi), 0],[0,0,1]]).astype(np.float32)
+        for i in range(len(quats)):
+            transform_matrix[i] = quat_and_trans_2_trans_matrix(quats[i])
+            transform_matrix[i,2,3] += SCENE_OBJECT_DEPTH
+            transform_matrix[i,:3,:3] = transform_matrix[i,:3,:3] @ R_z # Rotate every transform_matrix 180 degree around z-axis
+        transform_matrix[:, 0:3, 3] /= scaling_factor 
+        return transform_matrix
+
 
 def extract_owndataset_data(datadir, scene_name, start_frame_i=0, end_frame_i=None, step=1, train_p=0.7, val_p=0.15, test_p=0.15):
     """Converts a given sequence from the DeepDeform dataset to the required format.
@@ -219,6 +254,7 @@ def extract_owndataset_data(datadir, scene_name, start_frame_i=0, end_frame_i=No
             W = np.array(metas["w"]).astype(np.float32)
             
             poses = np.array(metas["poses"]).astype(np.float32)
+            poses = poses[start_frame_i:end_frame_i]
             poses = poses[::int(FPS/FPS_TARGET)]
             
             transform_matrix = np.zeros(shape=(len(poses),4,4))
@@ -382,7 +418,7 @@ def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="
         if render_pose_type == "spherical":
             render_poses = torch.stack([pose_spherical2(0, angle, SCENE_OBJECT_DEPTH) for angle in np.linspace(0,90,101)], 0)       # changed from (-180,180,40+1)
             render_poses[:, 0:3, 3] /= scaling_factor # scale render_poses as poses        
-        elif render_pose_type == "spiral": 
+        elif render_pose_type == "spiral":
             render_poses = torch.stack([pose_spiral(angle, z_cam_dist, SCENE_OBJECT_DEPTH, H, W) for angle, z_cam_dist in              
                                         zip(np.linspace(0, 2*360, 101), np.linspace(0, -SCENE_OBJECT_DEPTH*0.5, 101))], 0)
             render_poses[:, 0:3, 3] /= scaling_factor # scale render_poses as poses
@@ -392,10 +428,19 @@ def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="
             render_poses = torch.tensor(poses_original_trajectory(basedir), dtype=torch.float32)
             render_poses[:, 0:3, 3] /= scaling_factor # scale render_poses as poses #FIXME J: Not tested
         elif render_pose_type == "stat_dyn_stat":
-            stat_1 = torch.stack([torch.Tensor(poses[0]) for _ in range(50)], 0)
-            dyn_2 = torch.stack([pose_spherical2(0, angle, SCENE_OBJECT_DEPTH) for angle in np.linspace(0,90,41)], 0)
-            dyn_2[:, 0:3, 3] /= scaling_factor  
-            stat_3 = torch.stack([torch.Tensor(dyn_2[-1]) for _ in range(50)], 0)
+            if basedir.split("/")[-1]=="johannes":
+                stat_1 = torch.stack([torch.Tensor(poses[0]) for _ in range(50)], 0)
+                dyn_2 = torch.stack([pose_spherical2(0, angle, SCENE_OBJECT_DEPTH) for angle in np.linspace(0,90,41)], 0)
+                dyn_2[:, 0:3, 3] /= scaling_factor 
+                stat_3 = torch.stack([torch.Tensor(dyn_2[-1]) for _ in range(50)], 0)
+            elif basedir.split("/")[-1]=="bottle":
+                stat_1 = torch.stack([torch.Tensor(poses[0]) for _ in range(50)], 0)
+                dyn_2 = torch.tensor(interpolate_between_two_poses(basedir, 0, 132, 41, scaling_factor), dtype=torch.float32)
+                stat_3 = torch.stack([torch.Tensor(dyn_2[-1]) for _ in range(50)], 0)
+            elif basedir.split("/")[-1]=="gobblet":
+                stat_1 = torch.stack([torch.Tensor(poses[0]) for _ in range(50)], 0)
+                dyn_2 = torch.tensor(interpolate_between_two_poses(basedir, 85, 165, 41, scaling_factor), dtype=torch.float32)
+                stat_3 = torch.stack([torch.Tensor(dyn_2[-1]) for _ in range(50)], 0)
             render_poses = torch.cat([stat_1, dyn_2, stat_3], 0)  
     if slowmo:
         render_times_0 = torch.linspace(0., 0.35, int(render_poses.shape[0]*0.35))
@@ -403,7 +448,6 @@ def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="
         render_times_1 = torch.linspace(0.35,0.5, render_poses.shape[0]-2*int(render_poses.shape[0]*0.35)) #slowmo
         render_times = torch.cat((render_times_0, render_times_1))
         render_times = torch.cat((render_times, render_times_2))
-        print(render_times)         # FIXME DEL
     elif render_pose_type == "stat_dyn_stat":
         render_times = torch.cat([
             torch.linspace(0.,0.5,50),
@@ -433,7 +477,7 @@ def load_owndataset_data(basedir, half_res=False, testskip=1, render_pose_type="
 
 if __name__ == "__main__":
     print("EXTRACTING DATA")
-    extract_owndataset_data("data/EXR_RGBD_s3", "game")
+    extract_owndataset_data("data/EXR_RGBD_s4", "gobblet", start_frame_i=85, end_frame_i=270, step=1, train_p=0.80, val_p=0.1, test_p=0.1)
     #exit(0)
 
     # print("DEBUGGING")

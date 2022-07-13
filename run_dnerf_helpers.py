@@ -17,6 +17,7 @@ from utils.metrics import MSE, PSNR, SSIM, LPIPS, RMSE
 img2mse = lambda x, y : torch.mean((x - y) ** 2)
 mse2psnr = lambda x : -10. * torch.log(x) / torch.log(torch.Tensor([10.]))
 to8b = lambda x : (255*np.clip(x,0,1)).astype(np.uint8)
+to8d = lambda x : (255*(x/np.max(x))).astype(np.uint8)
 
 
 def depth2mse(depth, target_depth):
@@ -428,7 +429,7 @@ def get_rays(H, W, focal_x, focal_y, c2w):
     i = i.t()   # transposes 2D tensor
     j = j.t()
     # The ray directions in the camera coordinate system. 
-    # They reach respective pixel on the image (scaled by 1/focal_length) after travelling 1 unit. # TODO P: Stimmst du zu, Johannes?
+    # They reach respective pixel on the image (scaled by 1/focal_length) after travelling 1 unit.
     dirs = torch.stack([(i-W*.5)/focal_x, -(j-H*.5)/focal_y, -torch.ones_like(i)], -1)
     # Rotate ray directions from camera frame to the world frame
     rays_d = torch.sum(dirs[..., np.newaxis, :] * c2w[:3,:3], -1)  # dot product, equals to: [c2w.dot(dir) for dir in dirs]
@@ -542,7 +543,7 @@ def compute_samples_around_depth(raw, z_vals, rays_d, N_samples, perturb, lower_
     sampling_depth, sampling_std = raw2depth(raw, z_vals, rays_d, device)
     sampling_std = sampling_std.clamp(min=lower_bound)
     # IMPORTANT: Maybe hardcode the std here
-    # sampling_std = torch.full_like(sampling_std, 0.03)
+    sampling_std = torch.full_like(sampling_std, 0.03)
     depth_min = sampling_depth - 3. * sampling_std
     depth_max = sampling_depth + 3. * sampling_std
     return sample_3sigma(depth_min, depth_max, N_samples, perturb == 0., near, far, device)
