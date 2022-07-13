@@ -5,7 +5,7 @@ DGD-NeRF is a method for synthesizing novel views, at an arbitrary point in time
 
 This project is an extension of [D-NeRF](https://github.com/albertpumarola/D-NeRF) improving modelling of dynamic scenes. We thank the authors of [NeRF-pytorch](https://github.com/yenchenlin/nerf-pytorch), [Dense Depth Priors for NeRF](https://github.com/barbararoessle/dense_depth_priors_nerf) and [Non-Rigid NeRF](https://github.com/facebookresearch/nonrigid_nerf) from whom be borrow code. 
 
-![D-NeRF](https://www.albertpumarola.com/images/2021/D-NeRF/model.png)
+![D-NeRF](docs/static/images/model.png)
 
 ## Installation
 ```
@@ -86,20 +86,3 @@ If you use this code or ideas from the paper for your research, please cite us a
       primaryClass={cs.CV}
 }
 ```
-
-
-# Schedule
-
-|  | GPU1 | GPU2 |
-| :---: | :---: | :---: |
-| Mi, 16:00 | Johannes scene w/ dnerf ✅ | Johannes scene w/ mse loss ✅ |
-| Do, 16:00 | Johannes scene w/ dgs not hardcoded ✅ | Johannes scene w/ mse loss + dgs not hardcoded ✅ |
-| Fr, 16:00 | Johannes scene w/ rigidity network | Johannes scene w/ gnll loss |
-| Sa, 16:00 | Johannes scene w/ latent codes | Johannes scene w/ rigidity network |
-| So, 16:00 | ... | ... |
-| Mo, 16:00 | ... | ... |
-| Di, 16:00 | ... | ... |
-
-
-TODO
-- larger N_rand -> batch_size
