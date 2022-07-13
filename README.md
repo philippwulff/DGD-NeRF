@@ -22,7 +22,7 @@ If you want to directly explore the models or use our training data, you can dow
 ```
 ├── logs 
 │   ├── human
-│   ├── johannes 
+│   ├── bottle 
 │   ├── ...
 ```
 
@@ -54,12 +54,12 @@ First download the dataset. Then,
 conda activate dgdnerf
 export PYTHONPATH='path/to/DGD-NeRF'
 export CUDA_VISIBLE_DEVICES=0
-python run_dnerf.py --config configs/johannes.txt
+python run_dnerf.py --config configs/human.txt
 ```
 
 ### Test
 First download pre-trained weights and dataset. Then, 
 ```
-python run_dnerf.py --config configs/johannes.txt --render_only --render_test
+python run_dnerf.py --config configs/human.txt --render_only --render_test
 ```
-This command will run the `johannes` experiment. When finished, results are saved to `./logs/johannes/renderonly_test_799999`. The quantitative results are stored inside the testrun folder under "metrics.txt".
+This command will run the `human` experiment. When finished, results are saved to `./logs/johannes/renderonly_test_799999`. The quantitative results are stored inside the testrun folder under "metrics.txt".
