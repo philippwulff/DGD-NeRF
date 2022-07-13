@@ -31,7 +31,7 @@ If you want to directly explore the models or use our training data, you can dow
 
 **DeepDeform**. This is a RGB-D dataset of dynamic scenes with fixed camera poses. You can request access on the project's [GitHub page](https://github.com/AljazBozic/DeepDeform).
 
-**Own Data**. Download as data.zip from [here](https://github.com/philippwulff/DGD-NeRF/releases/tag/v1.0).
+**Own Data**. Download our own dataset as data.zip from [here](https://github.com/philippwulff/DGD-NeRF/releases/tag/v1.0).
 This is what the directory structure looks like with pretrained weights and dataset:
 ```
 ├── data 
