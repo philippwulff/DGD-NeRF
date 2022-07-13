@@ -60,29 +60,3 @@ First download pre-trained weights and dataset. Then,
 python run_dnerf.py --config configs/johannes.txt --render_only --render_test
 ```
 This command will run the `johannes` experiment. When finished, results are saved to `./logs/johannes/renderonly_test_799999`. To quantitatively evaluate model run the `metrics.ipynb` notebook.
-
-## Citation
-If you use this code or ideas from the paper for your research, please cite us and the works we rely on:
-  
-```
-@article{pumarola2020d,
-  title={D-NeRF: Neural Radiance Fields for Dynamic Scenes},
-  author={Pumarola, Albert and Corona, Enric and Pons-Moll, Gerard and Moreno-Noguer, Francesc},
-  journal={arXiv preprint arXiv:2011.13961},
-  year={2020}
-}
-@inproceedings{roessle2022depthpriorsnerf,
-    title={Dense Depth Priors for Neural Radiance Fields from Sparse Input Views}, 
-    author={Barbara Roessle and Jonathan T. Barron and Ben Mildenhall and Pratul P. Srinivasan and Matthias Nie{\ss}ner},
-    booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
-    month={June},
-    year={2022}
-@misc{tretschk2020nonrigid,
-      title={Non-Rigid Neural Radiance Fields: Reconstruction and Novel View Synthesis of a Dynamic Scene From Monocular Video},
-      author={Edgar Tretschk and Ayush Tewari and Vladislav Golyanik and Michael Zollhöfer and Christoph Lassner and Christian Theobalt},
-      year={2020},
-      eprint={2012.12247},
-      archivePrefix={arXiv},
-      primaryClass={cs.CV}
-}
-```
