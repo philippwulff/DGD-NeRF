@@ -18,7 +18,7 @@ pip install -r requirements.txt
 
 If you want to directly explore the models or use our training data, you can download pre-trained models and the data:
 
-**Download Pre-trained Weights**. You can download the pre-trained models from [drive](https://drive.google.com/file/d/1VN-_DkRLL1khDVScQJEaohpbA2gC2I2K/view?usp=sharing) or [dropbox](https://www.dropbox.com/s/25sveotbx2x7wap/logs.zip?dl=0). Unzip the downloaded data to the project root dir in order to test it later. This is what the directory structure looks like:
+**Download Pre-trained Weights**. You can download the pre-trained models as logs.zip from [here](https://github.com/philippwulff/DGD-NeRF/releases/tag/v1.0). Unzip the downloaded data to the project root dir in order to test it later. This is what the directory structure looks like:
 ```
 ├── logs 
 │   ├── human
@@ -31,7 +31,20 @@ If you want to directly explore the models or use our training data, you can dow
 
 **DeepDeform**. This is a RGB-D dataset of dynamic scenes with fixed camera poses. You can request access on the project's [GitHub page](https://github.com/AljazBozic/DeepDeform).
 
-**Own Data**. Download from [here](https://drive.google.com/drive/folders/1hUv1UZfxtmqVtushTH2_obexMv7mVu8L?usp=sharing).
+**Own Data**. Download as data.zip from [here](https://github.com/philippwulff/DGD-NeRF/releases/tag/v1.0).
+This is what the directory structure looks like with pretrained weights and dataset:
+```
+├── data 
+│   ├── human
+│   ├── bottle 
+│   ├── gobblet 
+│   ├── ...
+├── logs 
+│   ├── human
+│   ├── bottle 
+│   ├── gobblet 
+│   ├── ...
+```
 
 **Generate Own scenes** Own scenes can be easily generated and integrated. We used an iPAD with Lidar Sensor (App: Record3d --> export Videos as EXR + RGB). Extract dataset to correct format by running load_owndataset.py (specifiy correct args in main() and create a scene configuration entry).
 
