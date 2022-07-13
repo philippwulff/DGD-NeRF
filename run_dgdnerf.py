@@ -10,7 +10,7 @@ from collections import defaultdict
 import configargparse
 import cv2
 
-from run_dnerf_helpers import *
+from run_dgdnerf_helpers import *
 from utils import * # load_blender_data, load_deepdeform_data, load_owndataset_data, 
 
 try:
