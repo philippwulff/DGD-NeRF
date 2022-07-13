@@ -23,16 +23,17 @@ If you want to directly explore the models or use our training data, you can dow
 ├── logs 
 │   ├── human
 │   ├── bottle 
+│   ├── gobblet 
 │   ├── ...
 ```
 
-*Download Datasets*
+*Dataset*
 
 **DeepDeform**. This is a RGB-D dataset of dynamic scenes with fixed camera poses. You can request access on the project's [GitHub page](https://github.com/AljazBozic/DeepDeform).
 
 **Own Data**. Download from [here](https://drive.google.com/drive/folders/1hUv1UZfxtmqVtushTH2_obexMv7mVu8L?usp=sharing).
 
-**Generate Own scenes** Own scenes can be easily generated and integrated. We used an iPAD with Lidar Sensor (App: Record3d --> export Videos as EXR + RGB). Extract dataset to correct format by running load_owndataset.py (Specifiy correct args in main and create a scene configuration entry).
+**Generate Own scenes** Own scenes can be easily generated and integrated. We used an iPAD with Lidar Sensor (App: Record3d --> export Videos as EXR + RGB). Extract dataset to correct format by running load_owndataset.py (specifiy correct args in main() and create a scene configuration entry).
 
 ## How to Use It
 
@@ -45,8 +46,11 @@ You can use these jupyter notebooks to explore the model.
 | ----------- | ----------- |
 | Synthesize novel views at an arbitrary point in time. (Requires trained model) | render.ipynb|
 | Reconstruct the mesh at an arbitrary point in time. (Requires trained model) | reconstruct.ipynb|
-| See the camera trajectory of the training frames or novel views. | eda_virtual_camera.ipynb|
+| See the camera trajectory the training frames. | eda_owndataset_train.ipynb|
+| See the camera poses of novel views. | eda_virtual_camera.ipynb|
 | Visualize the sampling along camera rays. (Requires training logs) | eda_ray_sampling.ipynb|
+
+The followinf instructions use the `human` scene as an example which can be replaced by the other scenes.
 
 ### Train
 First download the dataset. Then,
@@ -57,9 +61,22 @@ export CUDA_VISIBLE_DEVICES=0
 python run_dnerf.py --config configs/human.txt
 ```
 
+This command will run the `human` experiment with the specified args in the config `human.txt`.
+Our extensions can be modularly enabled or disabled in `human.txt`.
+
 ### Test
-First download pre-trained weights and dataset. Then, 
+First train the model or download pre-trained weights and dataset. Then, 
 ```
 python run_dnerf.py --config configs/human.txt --render_only --render_test
 ```
-This command will run the `human` experiment. When finished, results are saved to `./logs/johannes/renderonly_test_799999`. The quantitative results are stored inside the testrun folder under "metrics.txt".
+This command will render the test set images of the `human` experiment. When finished, quantitative (`metrics.txt`) and qualitative (rgb and depth images/videos) results are saved to `./logs/human/renderonly_test_799999`.
+
+### Render novel view videos
+
+To render novel view images you can use the notebook `render.ipynb`. To render novel view videos run
+```
+python run_dnerf.py --config configs/human.txt --render_only --render_pose_type spherical
+```
+
+There exist multiple options for the render_pose_type dependent on the selected scene.
+
